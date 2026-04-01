@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-03-25T23:46:54.086191+00:00",
+  "insightvm": {
+    "source": "insightvm",
+    "collected_at": "2026-03-25T23:46:54.086219+00:00",
+    "assets": [
+      {
+        "id": "b00e1715a53297e45e756cf8d87676d59e532355",
+        "source": "insightvm",
+        "hostname": null,
+        "ip": null,
+        "os": null,
+        "tags": [],
+        "raw": {
+          "error": "HTTP 401 -> {\n  \"status\" : \"UNAUTHORIZED\",\n  \"message\" : \"An unexpected error occurred. See the log file for more information or contact support.\",\n  \"_links\" : {\n    \"self\" : {\n      \"href\" : \"https://192.168.18.206:3780/api/3/assets?page=0\\u0026size=200\"\n    }\n  }\n}"
+        }
+      }
+    ],
+    "findings": [],
+    "errors": [],
+    "meta": {
+      "assets_count": 1,
+      "findings_count": 0
+    }
+  }
+}

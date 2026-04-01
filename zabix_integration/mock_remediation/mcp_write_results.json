@@ -1,0 +1,373 @@
+{
+  "generated_at": "2026-03-11T22:00:42.735631+00:00",
+  "mode": "mcp_write_ack",
+  "source_results": "C:\\Users\\diego\\PROYECTOS\\zabbix\\OneDrive\\Desktop\\zabbix-main\\mock_remediation\\mcp_read_only_results.json",
+  "ticket_id": 1000,
+  "finding_id": "zbx-trig-24324",
+  "result": {
+    "id": 1000,
+    "company_id": 1,
+    "created_by_user_id": 42,
+    "assigned_to_agent": "victor",
+    "source": "zabbix",
+    "scanner_type": "zabbix",
+    "scan_id": "01f799ee-cc66-4b68-9933-d67be503caaf",
+    "finding_id": "zbx-trig-24324",
+    "dedup_key": "zabbix:zbx-trig-24324",
+    "subject": "[HIGH] Remediacion Zabbix para PA-440 - {HOST.HOST} is down!",
+    "description": "ALERTA ACTIVA: {HOST.HOST} is down!",
+    "status": "COMPLETED",
+    "executed_at": "2026-03-11T22:00:42.735621+00:00",
+    "created_at": "2026-03-11T21:51:42.522453+00:00",
+    "action_plan": {
+      "strategy": "triage_and_contain",
+      "summary": "Validar trigger activo, obtener contexto del host y ejecutar contencion operativa en Zabbix si aplica.",
+      "candidate_mcp_tools": [
+        "trigger_get",
+        "problem_get",
+        "host_get",
+        "event_acknowledge",
+        "maintenance_create"
+      ],
+      "steps": [
+        {
+          "order": 1,
+          "tool": "trigger_get",
+          "purpose": "Obtener el trigger exacto y validar severidad/estado.",
+          "params": {
+            "search": {
+              "description": "{HOST.HOST} is down!"
+            },
+            "limit": 10
+          }
+        },
+        {
+          "order": 2,
+          "tool": "host_get",
+          "purpose": "Resolver el host afectado y confirmar si sigue habilitado/monitoreado.",
+          "params": {
+            "search": {
+              "name": "PA-440"
+            },
+            "limit": 5
+          }
+        },
+        {
+          "order": 3,
+          "tool": "problem_get",
+          "purpose": "Confirmar que el problema sigue activo antes de actuar.",
+          "params": {
+            "search": {
+              "name": "{HOST.HOST} is down!"
+            },
+            "limit": 10
+          }
+        },
+        {
+          "order": 4,
+          "tool": "event_acknowledge",
+          "purpose": "Registrar la accion tomada y dejar trazabilidad operativa.",
+          "params": {
+            "eventids": [],
+            "message": "Victor procesa ticket para zbx-trig-24324"
+          },
+          "requires_runtime_values": [
+            "eventids"
+          ]
+        },
+        {
+          "order": 5,
+          "tool": "maintenance_create",
+          "purpose": "Aislar temporalmente el activo en mantenimiento si la respuesta requiere contencion.",
+          "params": {
+            "name": "Victor remediation PA-440",
+            "active_since": 0,
+            "active_till": 0,
+            "hostids": []
+          },
+          "requires_runtime_values": [
+            "active_since",
+            "active_till",
+            "hostids"
+          ],
+          "optional": true
+        }
+      ],
+      "success_criteria": [
+        "El trigger y el problema fueron confirmados.",
+        "La accion queda registrada en Zabbix.",
+        "El ticket puede pasar a COMPLETED o PARTIAL_SUCCESS con evidencia."
+      ]
+    },
+    "action_plan_version": "v1",
+    "approved_by_user_id": 42,
+    "approved_at": "2026-03-11T22:00:42.735614+00:00",
+    "rejected_by_user_id": null,
+    "rejected_at": null,
+    "execution_status": "ACK_EXECUTED",
+    "execution_logs": [
+      {
+        "timestamp": "2026-03-11T21:57:26.735821+00:00",
+        "level": "INFO",
+        "message": "Victor inicia enriquecimiento con MCP real en modo read-only.",
+        "extra": {
+          "ticket_id": 1000,
+          "finding_id": "zbx-trig-24324"
+        }
+      },
+      {
+        "timestamp": "2026-03-11T21:57:27.427371+00:00",
+        "level": "INFO",
+        "message": "host_get ejecutado.",
+        "extra": {
+          "matched_hosts": 1,
+          "hostids": [
+            "10645"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-03-11T21:57:27.584094+00:00",
+        "level": "INFO",
+        "message": "trigger_get ejecutado.",
+        "extra": {
+          "matched_triggers": 1,
+          "triggerids": [
+            "24324"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-03-11T21:57:27.790228+00:00",
+        "level": "INFO",
+        "message": "problem_get ejecutado.",
+        "extra": {
+          "matched_problems": 1,
+          "problem_eventids": [
+            "72"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-03-11T21:57:27.974493+00:00",
+        "level": "INFO",
+        "message": "event_get ejecutado.",
+        "extra": {
+          "matched_events": 3,
+          "eventids": [
+            "64",
+            "72",
+            "66"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-03-11T22:00:42.224253+00:00",
+        "level": "INFO",
+        "message": "Snapshot previo obtenido.",
+        "extra": {
+          "target_eventids": [
+            "72"
+          ],
+          "problem_count": 1,
+          "event_count": 1
+        }
+      },
+      {
+        "timestamp": "2026-03-11T22:00:42.398638+00:00",
+        "level": "INFO",
+        "message": "event_acknowledge ejecutado.",
+        "extra": {
+          "target_eventids": [
+            "72"
+          ],
+          "ack_response": {
+            "eventids": [
+              72
+            ]
+          }
+        }
+      }
+    ],
+    "verification_status": "ACK_RECORDED",
+    "verification_logs": [
+      {
+        "timestamp": "2026-03-11T21:57:27.974511+00:00",
+        "level": "INFO",
+        "message": "Contexto resuelto desde MCP read-only.",
+        "extra": {
+          "hostids": [
+            "10645"
+          ],
+          "triggerids": [
+            "24324"
+          ],
+          "problem_eventids": [
+            "72"
+          ],
+          "eventids": [
+            "64",
+            "72",
+            "66"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-03-11T22:00:42.735592+00:00",
+        "level": "INFO",
+        "message": "Snapshot posterior obtenido.",
+        "extra": {
+          "problem_count": 1,
+          "event_count": 1
+        }
+      }
+    ],
+    "requires_approval": true,
+    "dry_run": true,
+    "severity": "HIGH",
+    "risk_score": 8.0,
+    "finding_type": "active_trigger",
+    "asset": {
+      "host": "PA-440",
+      "ip": "N/A",
+      "port": "161",
+      "protocol": "snmp/agent"
+    },
+    "finding": {
+      "name": "{HOST.HOST} is down!",
+      "severity": "high",
+      "cvss": 8.0,
+      "cve": "INTERNAL-ZBX",
+      "oid": "zbx-trig-24324",
+      "host": "PA-440 (N/A)",
+      "port": "161",
+      "protocol": "snmp/agent",
+      "description": "ALERTA ACTIVA: {HOST.HOST} is down!",
+      "solution": "Accion requerida en consola Zabbix.",
+      "impact": "Monitoreo activo o recurso afectado.",
+      "finding_type": "active_trigger"
+    },
+    "remediation_context": {
+      "cve": "INTERNAL-ZBX",
+      "impact": "Monitoreo activo o recurso afectado.",
+      "solution_hint": "Accion requerida en consola Zabbix."
+    },
+    "runtime_values": {
+      "hostids": [
+        "10645"
+      ],
+      "triggerids": [
+        "24324"
+      ],
+      "problem_eventids": [
+        "72"
+      ],
+      "eventids": [
+        "64",
+        "72",
+        "66"
+      ],
+      "items": []
+    },
+    "remediation_result": {
+      "action": "event_acknowledge",
+      "target_eventids": [
+        "72"
+      ],
+      "message": "Victor remediation acknowledgement for ticket 1000 / zbx-trig-24324",
+      "ack_response": {
+        "eventids": [
+          72
+        ]
+      },
+      "before_problem": [
+        {
+          "eventid": "72",
+          "source": "0",
+          "object": "0",
+          "objectid": "24324",
+          "clock": "1773249751",
+          "ns": "325755257",
+          "r_eventid": "0",
+          "r_clock": "0",
+          "r_ns": "0",
+          "correlationid": "0",
+          "userid": "0",
+          "name": "PA-440 is down!",
+          "acknowledged": "0",
+          "severity": "4",
+          "cause_eventid": "0",
+          "opdata": "",
+          "suppressed": "0",
+          "urls": []
+        }
+      ],
+      "after_problem": [
+        {
+          "eventid": "72",
+          "source": "0",
+          "object": "0",
+          "objectid": "24324",
+          "clock": "1773249751",
+          "ns": "325755257",
+          "r_eventid": "0",
+          "r_clock": "0",
+          "r_ns": "0",
+          "correlationid": "0",
+          "userid": "0",
+          "name": "PA-440 is down!",
+          "acknowledged": "1",
+          "severity": "4",
+          "cause_eventid": "0",
+          "opdata": "",
+          "suppressed": "0",
+          "urls": []
+        }
+      ],
+      "before_event": [
+        {
+          "eventid": "72",
+          "source": "0",
+          "object": "0",
+          "objectid": "24324",
+          "clock": "1773249751",
+          "value": "1",
+          "acknowledged": "0",
+          "ns": "325755257",
+          "name": "PA-440 is down!",
+          "severity": "4",
+          "r_eventid": "0",
+          "c_eventid": "0",
+          "correlationid": "0",
+          "userid": "0",
+          "cause_eventid": "0",
+          "opdata": "",
+          "suppressed": "0",
+          "urls": []
+        }
+      ],
+      "after_event": [
+        {
+          "eventid": "72",
+          "source": "0",
+          "object": "0",
+          "objectid": "24324",
+          "clock": "1773249751",
+          "value": "1",
+          "acknowledged": "1",
+          "ns": "325755257",
+          "name": "PA-440 is down!",
+          "severity": "4",
+          "r_eventid": "0",
+          "c_eventid": "0",
+          "correlationid": "0",
+          "userid": "0",
+          "cause_eventid": "0",
+          "opdata": "",
+          "suppressed": "0",
+          "urls": []
+        }
+      ]
+    }
+  }
+}

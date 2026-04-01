@@ -1,0 +1,8 @@
+python-dotenv==1.0.1
+requests==2.32.3
+
+# Provee el módulo `gvm`
+python-gvm==26.9.0
+
+# XML robusto/seguro
+defusedxml==0.7.1

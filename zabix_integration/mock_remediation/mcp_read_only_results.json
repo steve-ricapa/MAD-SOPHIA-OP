@@ -1,0 +1,576 @@
+{
+  "generated_at": "2026-03-11T21:57:28.769243+00:00",
+  "mode": "mcp_read_only",
+  "mcp_src": "C:\\Users\\diego\\PROYECTOS\\zabbix\\ZABIXMCPAG\\zabbix-mcp-server\\src",
+  "source_tickets": "C:\\Users\\diego\\PROYECTOS\\zabbix\\OneDrive\\Desktop\\zabbix-main\\mock_remediation\\mock_tickets.json",
+  "processed_count": 2,
+  "results": [
+    {
+      "id": 1000,
+      "company_id": 1,
+      "created_by_user_id": 42,
+      "assigned_to_agent": "victor",
+      "source": "zabbix",
+      "scanner_type": "zabbix",
+      "scan_id": "01f799ee-cc66-4b68-9933-d67be503caaf",
+      "finding_id": "zbx-trig-24324",
+      "dedup_key": "zabbix:zbx-trig-24324",
+      "subject": "[HIGH] Remediacion Zabbix para PA-440 - {HOST.HOST} is down!",
+      "description": "ALERTA ACTIVA: {HOST.HOST} is down!",
+      "status": "READY_FOR_APPROVAL",
+      "executed_at": "2026-03-11T21:57:27.974517+00:00",
+      "created_at": "2026-03-11T21:51:42.522453+00:00",
+      "action_plan": {
+        "strategy": "triage_and_contain",
+        "summary": "Validar trigger activo, obtener contexto del host y ejecutar contencion operativa en Zabbix si aplica.",
+        "candidate_mcp_tools": [
+          "trigger_get",
+          "problem_get",
+          "host_get",
+          "event_acknowledge",
+          "maintenance_create"
+        ],
+        "steps": [
+          {
+            "order": 1,
+            "tool": "trigger_get",
+            "purpose": "Obtener el trigger exacto y validar severidad/estado.",
+            "params": {
+              "search": {
+                "description": "{HOST.HOST} is down!"
+              },
+              "limit": 10
+            }
+          },
+          {
+            "order": 2,
+            "tool": "host_get",
+            "purpose": "Resolver el host afectado y confirmar si sigue habilitado/monitoreado.",
+            "params": {
+              "search": {
+                "name": "PA-440"
+              },
+              "limit": 5
+            }
+          },
+          {
+            "order": 3,
+            "tool": "problem_get",
+            "purpose": "Confirmar que el problema sigue activo antes de actuar.",
+            "params": {
+              "search": {
+                "name": "{HOST.HOST} is down!"
+              },
+              "limit": 10
+            }
+          },
+          {
+            "order": 4,
+            "tool": "event_acknowledge",
+            "purpose": "Registrar la accion tomada y dejar trazabilidad operativa.",
+            "params": {
+              "eventids": [],
+              "message": "Victor procesa ticket para zbx-trig-24324"
+            },
+            "requires_runtime_values": [
+              "eventids"
+            ]
+          },
+          {
+            "order": 5,
+            "tool": "maintenance_create",
+            "purpose": "Aislar temporalmente el activo en mantenimiento si la respuesta requiere contencion.",
+            "params": {
+              "name": "Victor remediation PA-440",
+              "active_since": 0,
+              "active_till": 0,
+              "hostids": []
+            },
+            "requires_runtime_values": [
+              "active_since",
+              "active_till",
+              "hostids"
+            ],
+            "optional": true
+          }
+        ],
+        "success_criteria": [
+          "El trigger y el problema fueron confirmados.",
+          "La accion queda registrada en Zabbix.",
+          "El ticket puede pasar a COMPLETED o PARTIAL_SUCCESS con evidencia."
+        ]
+      },
+      "action_plan_version": "v1",
+      "approved_by_user_id": null,
+      "approved_at": null,
+      "rejected_by_user_id": null,
+      "rejected_at": null,
+      "execution_status": "READ_ONLY_VALIDATED",
+      "execution_logs": [
+        {
+          "timestamp": "2026-03-11T21:57:26.735821+00:00",
+          "level": "INFO",
+          "message": "Victor inicia enriquecimiento con MCP real en modo read-only.",
+          "extra": {
+            "ticket_id": 1000,
+            "finding_id": "zbx-trig-24324"
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:57:27.427371+00:00",
+          "level": "INFO",
+          "message": "host_get ejecutado.",
+          "extra": {
+            "matched_hosts": 1,
+            "hostids": [
+              "10645"
+            ]
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:57:27.584094+00:00",
+          "level": "INFO",
+          "message": "trigger_get ejecutado.",
+          "extra": {
+            "matched_triggers": 1,
+            "triggerids": [
+              "24324"
+            ]
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:57:27.790228+00:00",
+          "level": "INFO",
+          "message": "problem_get ejecutado.",
+          "extra": {
+            "matched_problems": 1,
+            "problem_eventids": [
+              "72"
+            ]
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:57:27.974493+00:00",
+          "level": "INFO",
+          "message": "event_get ejecutado.",
+          "extra": {
+            "matched_events": 3,
+            "eventids": [
+              "64",
+              "72",
+              "66"
+            ]
+          }
+        }
+      ],
+      "verification_status": "CONTEXT_RESOLVED",
+      "verification_logs": [
+        {
+          "timestamp": "2026-03-11T21:57:27.974511+00:00",
+          "level": "INFO",
+          "message": "Contexto resuelto desde MCP read-only.",
+          "extra": {
+            "hostids": [
+              "10645"
+            ],
+            "triggerids": [
+              "24324"
+            ],
+            "problem_eventids": [
+              "72"
+            ],
+            "eventids": [
+              "64",
+              "72",
+              "66"
+            ]
+          }
+        }
+      ],
+      "requires_approval": true,
+      "dry_run": true,
+      "severity": "HIGH",
+      "risk_score": 8.0,
+      "finding_type": "active_trigger",
+      "asset": {
+        "host": "PA-440",
+        "ip": "N/A",
+        "port": "161",
+        "protocol": "snmp/agent"
+      },
+      "finding": {
+        "name": "{HOST.HOST} is down!",
+        "severity": "high",
+        "cvss": 8.0,
+        "cve": "INTERNAL-ZBX",
+        "oid": "zbx-trig-24324",
+        "host": "PA-440 (N/A)",
+        "port": "161",
+        "protocol": "snmp/agent",
+        "description": "ALERTA ACTIVA: {HOST.HOST} is down!",
+        "solution": "Accion requerida en consola Zabbix.",
+        "impact": "Monitoreo activo o recurso afectado.",
+        "finding_type": "active_trigger"
+      },
+      "remediation_context": {
+        "cve": "INTERNAL-ZBX",
+        "impact": "Monitoreo activo o recurso afectado.",
+        "solution_hint": "Accion requerida en consola Zabbix."
+      },
+      "runtime_values": {
+        "hostids": [
+          "10645"
+        ],
+        "triggerids": [
+          "24324"
+        ],
+        "problem_eventids": [
+          "72"
+        ],
+        "eventids": [
+          "64",
+          "72",
+          "66"
+        ],
+        "items": []
+      }
+    },
+    {
+      "id": 1001,
+      "company_id": 1,
+      "created_by_user_id": 42,
+      "assigned_to_agent": "victor",
+      "source": "zabbix",
+      "scanner_type": "zabbix",
+      "scan_id": "01f799ee-cc66-4b68-9933-d67be503caaf",
+      "finding_id": "zbx-trig-24327",
+      "dedup_key": "zabbix:zbx-trig-24327",
+      "subject": "[INFORMATION] Remediacion Zabbix para PA-440 - App-ID version has changed to {ITEM.VALUE1}",
+      "description": "ESTADO OK: App-ID version has changed to {ITEM.VALUE1}",
+      "status": "READY_FOR_EXECUTION",
+      "executed_at": "2026-03-11T21:57:28.769234+00:00",
+      "created_at": "2026-03-11T21:51:42.522485+00:00",
+      "action_plan": {
+        "strategy": "validate_change_and_document",
+        "summary": "Validar el cambio detectado, levantar contexto del activo y documentar si requiere accion fuera de Zabbix.",
+        "candidate_mcp_tools": [
+          "trigger_get",
+          "host_get",
+          "item_get",
+          "event_get",
+          "event_acknowledge"
+        ],
+        "steps": [
+          {
+            "order": 1,
+            "tool": "trigger_get",
+            "purpose": "Confirmar el trigger informativo y su ultima modificacion.",
+            "params": {
+              "search": {
+                "description": "App-ID version has changed to {ITEM.VALUE1}"
+              },
+              "limit": 10
+            }
+          },
+          {
+            "order": 2,
+            "tool": "host_get",
+            "purpose": "Resolver el activo afectado.",
+            "params": {
+              "search": {
+                "name": "PA-440"
+              },
+              "limit": 5
+            }
+          },
+          {
+            "order": 3,
+            "tool": "item_get",
+            "purpose": "Buscar items relacionados para identificar el valor que cambio.",
+            "params": {
+              "search": {
+                "name": "App-ID"
+              },
+              "limit": 10
+            }
+          },
+          {
+            "order": 4,
+            "tool": "event_acknowledge",
+            "purpose": "Dejar constancia del analisis o derivacion.",
+            "params": {
+              "eventids": [],
+              "message": "Victor revisa cambio observado en zbx-trig-24327"
+            },
+            "requires_runtime_values": [
+              "eventids"
+            ]
+          }
+        ],
+        "success_criteria": [
+          "El trigger fue validado y clasificado.",
+          "Existe evidencia de revision o derivacion.",
+          "Si no hay accion directa en Zabbix, el ticket queda documentado para otra capa de remediacion."
+        ]
+      },
+      "action_plan_version": "v1",
+      "approved_by_user_id": null,
+      "approved_at": null,
+      "rejected_by_user_id": null,
+      "rejected_at": null,
+      "execution_status": "READ_ONLY_VALIDATED",
+      "execution_logs": [
+        {
+          "timestamp": "2026-03-11T21:57:27.974540+00:00",
+          "level": "INFO",
+          "message": "Victor inicia enriquecimiento con MCP real en modo read-only.",
+          "extra": {
+            "ticket_id": 1001,
+            "finding_id": "zbx-trig-24327"
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:57:28.144570+00:00",
+          "level": "INFO",
+          "message": "host_get ejecutado.",
+          "extra": {
+            "matched_hosts": 1,
+            "hostids": [
+              "10645"
+            ]
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:57:28.295119+00:00",
+          "level": "INFO",
+          "message": "trigger_get ejecutado.",
+          "extra": {
+            "matched_triggers": 1,
+            "triggerids": [
+              "24327"
+            ]
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:57:28.449672+00:00",
+          "level": "INFO",
+          "message": "problem_get ejecutado.",
+          "extra": {
+            "matched_problems": 0,
+            "problem_eventids": []
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:57:28.616370+00:00",
+          "level": "INFO",
+          "message": "event_get ejecutado.",
+          "extra": {
+            "matched_events": 0,
+            "eventids": []
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:57:28.769218+00:00",
+          "level": "INFO",
+          "message": "item_get ejecutado.",
+          "extra": {
+            "matched_items": 2,
+            "itemids": [
+              "48044",
+              "48045"
+            ],
+            "search_hint": "App-ID"
+          }
+        }
+      ],
+      "verification_status": "CONTEXT_RESOLVED",
+      "verification_logs": [
+        {
+          "timestamp": "2026-03-11T21:57:28.769230+00:00",
+          "level": "INFO",
+          "message": "Contexto resuelto desde MCP read-only.",
+          "extra": {
+            "hostids": [
+              "10645"
+            ],
+            "triggerids": [
+              "24327"
+            ],
+            "problem_eventids": [],
+            "eventids": []
+          }
+        }
+      ],
+      "requires_approval": false,
+      "dry_run": true,
+      "severity": "INFORMATION",
+      "risk_score": 2.0,
+      "finding_type": "informational_trigger",
+      "asset": {
+        "host": "PA-440",
+        "ip": "N/A",
+        "port": "161",
+        "protocol": "snmp/agent"
+      },
+      "finding": {
+        "name": "App-ID version has changed to {ITEM.VALUE1}",
+        "severity": "information",
+        "cvss": 2.0,
+        "cve": "CVE-2024-001",
+        "oid": "zbx-trig-24327",
+        "host": "PA-440 (N/A)",
+        "port": "161",
+        "protocol": "snmp/agent",
+        "description": "ESTADO OK: App-ID version has changed to {ITEM.VALUE1}",
+        "solution": "Accion requerida en consola Zabbix.",
+        "impact": "Monitoreo activo o recurso afectado.",
+        "finding_type": "informational_trigger"
+      },
+      "remediation_context": {
+        "cve": "CVE-2024-001",
+        "impact": "Monitoreo activo o recurso afectado.",
+        "solution_hint": "Accion requerida en consola Zabbix."
+      },
+      "runtime_values": {
+        "hostids": [
+          "10645"
+        ],
+        "triggerids": [
+          "24327"
+        ],
+        "problem_eventids": [],
+        "eventids": [],
+        "items": [
+          {
+            "itemid": "48044",
+            "type": "20",
+            "snmp_oid": ".1.3.6.1.4.1.25461.2.1.2.1.20.0",
+            "hostid": "10645",
+            "name": "App-ID content date",
+            "key_": "panSysAppReleaseDate",
+            "delay": "1h",
+            "history": "30d",
+            "trends": "0",
+            "status": "0",
+            "value_type": "4",
+            "trapper_hosts": "",
+            "units": "",
+            "formula": "",
+            "logtimefmt": "",
+            "templateid": "47957",
+            "valuemapid": "0",
+            "params": "",
+            "ipmi_sensor": "",
+            "authtype": "0",
+            "username": "",
+            "password": "",
+            "publickey": "",
+            "privatekey": "",
+            "flags": "0",
+            "interfaceid": "31",
+            "description": "Currently installed application definition release date. If no release date is found, unknown is returned.",
+            "inventory_link": "0",
+            "lifetime": "7d",
+            "evaltype": "0",
+            "jmx_endpoint": "",
+            "master_itemid": "0",
+            "timeout": "",
+            "url": "",
+            "query_fields": [],
+            "posts": "",
+            "status_codes": "200",
+            "follow_redirects": "1",
+            "post_type": "0",
+            "http_proxy": "",
+            "headers": [],
+            "retrieve_mode": "0",
+            "request_method": "0",
+            "output_format": "0",
+            "ssl_cert_file": "",
+            "ssl_key_file": "",
+            "ssl_key_password": "",
+            "verify_peer": "0",
+            "verify_host": "0",
+            "allow_traps": "0",
+            "uuid": "",
+            "lifetime_type": "0",
+            "enabled_lifetime_type": "2",
+            "enabled_lifetime": "0",
+            "state": "0",
+            "error": "",
+            "name_resolved": "App-ID content date",
+            "parameters": [],
+            "lastclock": "0",
+            "lastns": "0",
+            "lastvalue": "",
+            "prevvalue": ""
+          },
+          {
+            "itemid": "48045",
+            "type": "20",
+            "snmp_oid": ".1.3.6.1.4.1.25461.2.1.2.1.7.0",
+            "hostid": "10645",
+            "name": "App-ID Version",
+            "key_": "panSysAppVersion",
+            "delay": "1h",
+            "history": "30d",
+            "trends": "0",
+            "status": "0",
+            "value_type": "4",
+            "trapper_hosts": "",
+            "units": "",
+            "formula": "",
+            "logtimefmt": "",
+            "templateid": "47958",
+            "valuemapid": "0",
+            "params": "",
+            "ipmi_sensor": "",
+            "authtype": "0",
+            "username": "",
+            "password": "",
+            "publickey": "",
+            "privatekey": "",
+            "flags": "0",
+            "interfaceid": "31",
+            "description": "Currently installed application definition version. If no application definition is found, 0 is returned.",
+            "inventory_link": "0",
+            "lifetime": "7d",
+            "evaltype": "0",
+            "jmx_endpoint": "",
+            "master_itemid": "0",
+            "timeout": "",
+            "url": "",
+            "query_fields": [],
+            "posts": "",
+            "status_codes": "200",
+            "follow_redirects": "1",
+            "post_type": "0",
+            "http_proxy": "",
+            "headers": [],
+            "retrieve_mode": "0",
+            "request_method": "0",
+            "output_format": "0",
+            "ssl_cert_file": "",
+            "ssl_key_file": "",
+            "ssl_key_password": "",
+            "verify_peer": "0",
+            "verify_host": "0",
+            "allow_traps": "0",
+            "uuid": "",
+            "lifetime_type": "0",
+            "enabled_lifetime_type": "2",
+            "enabled_lifetime": "0",
+            "state": "0",
+            "error": "",
+            "name_resolved": "App-ID Version",
+            "parameters": [],
+            "lastclock": "0",
+            "lastns": "0",
+            "lastvalue": "",
+            "prevvalue": ""
+          }
+        ]
+      }
+    }
+  ]
+}

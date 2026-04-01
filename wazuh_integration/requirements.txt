@@ -1,0 +1,6 @@
+aiohttp
+python-dotenv
+opensearch-py
+pydantic
+requests
+loguru

@@ -1,0 +1,32 @@
+{
+    "scan_id": "IVM-1738090455",
+    "company_id": 9,
+    "api_key": "TU_API_KEY",
+    "scanned_at": "2026-01-28T19:07:44.123456+00:00",
+    "event_type": "vuln_scan_report",
+    "scan_summary": {
+        "scan_id": "IVM-1738090455",
+        "scan_name": "InsightVM Scan - 2026-01-28T19:07:44.123456+00:00",
+        "status": "completed",
+        "total_hosts": 30,
+        "scanned_at": "2026-01-28T19:07:44.123456+00:00",
+        "cvss_max": 9.8,
+        "critical_count": 29,
+        "high_count": 33,
+        "medium_count": 4,
+        "low_count": 0,
+        "info_count": 0
+    },
+    "findings": [
+        {
+            "name": "ICMP redirection enabled",
+            "severity": "unknown",
+            "cvss": null,
+            "cve": null,
+            "host": "192.168.1.207",
+            "description": "By default, many linux systems enable a feature called ICMP redirection...",
+            "solution": "No solution available",
+            "impact": "No impact information"
+        }
+    ]
+}

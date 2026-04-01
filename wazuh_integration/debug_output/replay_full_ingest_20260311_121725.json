@@ -1,0 +1,38 @@
+{
+    "scan_id": "aaa52db0-4336-4efa-b087-4fdf3b7ad6b9",
+    "company_id": 1,
+    "api_key": "dIbJ7VDGqd5Rf7Yyj3ylAVuESaMYRuAYCOYOKMJh",
+    "scanned_at": "2026-03-11T17:17:25.704519+00:00",
+    "event_type": "wazuh_alerts_report",
+    "scanner_type": "wazuh",
+    "scan_summary": {
+        "scan_id": "aaa52db0-4336-4efa-b087-4fdf3b7ad6b9",
+        "scan_name": "WazuhC Real-time Sync",
+        "status": "completed",
+        "total_hosts": 1,
+        "scanned_at": "2026-03-11T17:17:25.704519+00:00",
+        "cvss_max": 0.0,
+        "scanner_type": "wazuh",
+        "disaster_count": 0,
+        "high_count": 0,
+        "average_count": 0,
+        "warning_count": 0,
+        "information_count": 0,
+        "not_classified_count": 0,
+        "metrics": {
+            "trends": {
+                "severity_levels": {
+                    "critical": 0,
+                    "high": 0,
+                    "medium": 0,
+                    "low": 0
+                }
+            },
+            "tops": {
+                "top_rules": [],
+                "top_agents": []
+            }
+        }
+    },
+    "findings": []
+}

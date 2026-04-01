@@ -1,0 +1,450 @@
+{
+  "generated_at": "2026-03-11T21:51:49.426631+00:00",
+  "source_tickets": "C:\\Users\\diego\\PROYECTOS\\zabbix\\OneDrive\\Desktop\\zabbix-main\\mock_remediation\\mock_tickets.json",
+  "processed_count": 2,
+  "results": [
+    {
+      "id": 1000,
+      "company_id": 1,
+      "created_by_user_id": 42,
+      "assigned_to_agent": "victor",
+      "source": "zabbix",
+      "scanner_type": "zabbix",
+      "scan_id": "01f799ee-cc66-4b68-9933-d67be503caaf",
+      "finding_id": "zbx-trig-24324",
+      "dedup_key": "zabbix:zbx-trig-24324",
+      "subject": "[HIGH] Remediacion Zabbix para PA-440 - {HOST.HOST} is down!",
+      "description": "ALERTA ACTIVA: {HOST.HOST} is down!",
+      "status": "READY_FOR_APPROVAL",
+      "executed_at": "2026-03-11T21:51:49.426501+00:00",
+      "created_at": "2026-03-11T21:51:42.522453+00:00",
+      "action_plan": {
+        "strategy": "triage_and_contain",
+        "summary": "Validar trigger activo, obtener contexto del host y ejecutar contencion operativa en Zabbix si aplica.",
+        "candidate_mcp_tools": [
+          "trigger_get",
+          "problem_get",
+          "host_get",
+          "event_acknowledge",
+          "maintenance_create"
+        ],
+        "steps": [
+          {
+            "order": 1,
+            "tool": "trigger_get",
+            "purpose": "Obtener el trigger exacto y validar severidad/estado.",
+            "params": {
+              "search": {
+                "description": "{HOST.HOST} is down!"
+              },
+              "limit": 10
+            }
+          },
+          {
+            "order": 2,
+            "tool": "host_get",
+            "purpose": "Resolver el host afectado y confirmar si sigue habilitado/monitoreado.",
+            "params": {
+              "search": {
+                "name": "PA-440"
+              },
+              "limit": 5
+            }
+          },
+          {
+            "order": 3,
+            "tool": "problem_get",
+            "purpose": "Confirmar que el problema sigue activo antes de actuar.",
+            "params": {
+              "search": {
+                "name": "{HOST.HOST} is down!"
+              },
+              "limit": 10
+            }
+          },
+          {
+            "order": 4,
+            "tool": "event_acknowledge",
+            "purpose": "Registrar la accion tomada y dejar trazabilidad operativa.",
+            "params": {
+              "eventids": [],
+              "message": "Victor procesa ticket para zbx-trig-24324"
+            },
+            "requires_runtime_values": [
+              "eventids"
+            ]
+          },
+          {
+            "order": 5,
+            "tool": "maintenance_create",
+            "purpose": "Aislar temporalmente el activo en mantenimiento si la respuesta requiere contencion.",
+            "params": {
+              "name": "Victor remediation PA-440",
+              "active_since": 0,
+              "active_till": 0,
+              "hostids": []
+            },
+            "requires_runtime_values": [
+              "active_since",
+              "active_till",
+              "hostids"
+            ],
+            "optional": true
+          }
+        ],
+        "success_criteria": [
+          "El trigger y el problema fueron confirmados.",
+          "La accion queda registrada en Zabbix.",
+          "El ticket puede pasar a COMPLETED o PARTIAL_SUCCESS con evidencia."
+        ]
+      },
+      "action_plan_version": "v1",
+      "approved_by_user_id": null,
+      "approved_at": null,
+      "rejected_by_user_id": null,
+      "rejected_at": null,
+      "execution_status": "DRY_RUN_SUCCESS",
+      "execution_logs": [
+        {
+          "timestamp": "2026-03-11T21:51:49.426448+00:00",
+          "level": "INFO",
+          "message": "Victor toma el ticket en estado pending.",
+          "extra": {
+            "ticket_id": 1000
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426460+00:00",
+          "level": "INFO",
+          "message": "Se valida el finding origen.",
+          "extra": {
+            "finding_id": "zbx-trig-24324",
+            "finding_type": "active_trigger"
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426466+00:00",
+          "level": "INFO",
+          "message": "Dry-run MCP preparado para trigger_get.",
+          "extra": {
+            "purpose": "Obtener el trigger exacto y validar severidad/estado.",
+            "params": {
+              "search": {
+                "description": "{HOST.HOST} is down!"
+              },
+              "limit": 10
+            }
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426471+00:00",
+          "level": "INFO",
+          "message": "Dry-run MCP preparado para host_get.",
+          "extra": {
+            "purpose": "Resolver el host afectado y confirmar si sigue habilitado/monitoreado.",
+            "params": {
+              "search": {
+                "name": "PA-440"
+              },
+              "limit": 5
+            }
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426474+00:00",
+          "level": "INFO",
+          "message": "Dry-run MCP preparado para problem_get.",
+          "extra": {
+            "purpose": "Confirmar que el problema sigue activo antes de actuar.",
+            "params": {
+              "search": {
+                "name": "{HOST.HOST} is down!"
+              },
+              "limit": 10
+            }
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426477+00:00",
+          "level": "INFO",
+          "message": "Dry-run MCP preparado para event_acknowledge.",
+          "extra": {
+            "purpose": "Registrar la accion tomada y dejar trazabilidad operativa.",
+            "params": {
+              "eventids": [
+                "resolved-at-runtime"
+              ],
+              "message": "Victor procesa ticket para zbx-trig-24324"
+            }
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426493+00:00",
+          "level": "INFO",
+          "message": "Dry-run MCP preparado para maintenance_create.",
+          "extra": {
+            "purpose": "Aislar temporalmente el activo en mantenimiento si la respuesta requiere contencion.",
+            "params": {
+              "name": "Victor remediation PA-440",
+              "active_since": 1773265909,
+              "active_till": 1773269509,
+              "hostids": [
+                "resolved-at-runtime"
+              ]
+            }
+          }
+        }
+      ],
+      "verification_status": "SIMULATED_PASS",
+      "verification_logs": [
+        {
+          "timestamp": "2026-03-11T21:51:49.426496+00:00",
+          "level": "INFO",
+          "message": "Validacion simulada completada.",
+          "extra": {
+            "success_criteria": [
+              "El trigger y el problema fueron confirmados.",
+              "La accion queda registrada en Zabbix.",
+              "El ticket puede pasar a COMPLETED o PARTIAL_SUCCESS con evidencia."
+            ]
+          }
+        }
+      ],
+      "requires_approval": true,
+      "dry_run": true,
+      "severity": "HIGH",
+      "risk_score": 8.0,
+      "finding_type": "active_trigger",
+      "asset": {
+        "host": "PA-440",
+        "ip": "N/A",
+        "port": "161",
+        "protocol": "snmp/agent"
+      },
+      "finding": {
+        "name": "{HOST.HOST} is down!",
+        "severity": "high",
+        "cvss": 8.0,
+        "cve": "INTERNAL-ZBX",
+        "oid": "zbx-trig-24324",
+        "host": "PA-440 (N/A)",
+        "port": "161",
+        "protocol": "snmp/agent",
+        "description": "ALERTA ACTIVA: {HOST.HOST} is down!",
+        "solution": "Accion requerida en consola Zabbix.",
+        "impact": "Monitoreo activo o recurso afectado.",
+        "finding_type": "active_trigger"
+      },
+      "remediation_context": {
+        "cve": "INTERNAL-ZBX",
+        "impact": "Monitoreo activo o recurso afectado.",
+        "solution_hint": "Accion requerida en consola Zabbix."
+      }
+    },
+    {
+      "id": 1001,
+      "company_id": 1,
+      "created_by_user_id": 42,
+      "assigned_to_agent": "victor",
+      "source": "zabbix",
+      "scanner_type": "zabbix",
+      "scan_id": "01f799ee-cc66-4b68-9933-d67be503caaf",
+      "finding_id": "zbx-trig-24327",
+      "dedup_key": "zabbix:zbx-trig-24327",
+      "subject": "[INFORMATION] Remediacion Zabbix para PA-440 - App-ID version has changed to {ITEM.VALUE1}",
+      "description": "ESTADO OK: App-ID version has changed to {ITEM.VALUE1}",
+      "status": "COMPLETED",
+      "executed_at": "2026-03-11T21:51:49.426628+00:00",
+      "created_at": "2026-03-11T21:51:42.522485+00:00",
+      "action_plan": {
+        "strategy": "validate_change_and_document",
+        "summary": "Validar el cambio detectado, levantar contexto del activo y documentar si requiere accion fuera de Zabbix.",
+        "candidate_mcp_tools": [
+          "trigger_get",
+          "host_get",
+          "item_get",
+          "event_get",
+          "event_acknowledge"
+        ],
+        "steps": [
+          {
+            "order": 1,
+            "tool": "trigger_get",
+            "purpose": "Confirmar el trigger informativo y su ultima modificacion.",
+            "params": {
+              "search": {
+                "description": "App-ID version has changed to {ITEM.VALUE1}"
+              },
+              "limit": 10
+            }
+          },
+          {
+            "order": 2,
+            "tool": "host_get",
+            "purpose": "Resolver el activo afectado.",
+            "params": {
+              "search": {
+                "name": "PA-440"
+              },
+              "limit": 5
+            }
+          },
+          {
+            "order": 3,
+            "tool": "item_get",
+            "purpose": "Buscar items relacionados para identificar el valor que cambio.",
+            "params": {
+              "search": {
+                "name": "App-ID"
+              },
+              "limit": 10
+            }
+          },
+          {
+            "order": 4,
+            "tool": "event_acknowledge",
+            "purpose": "Dejar constancia del analisis o derivacion.",
+            "params": {
+              "eventids": [],
+              "message": "Victor revisa cambio observado en zbx-trig-24327"
+            },
+            "requires_runtime_values": [
+              "eventids"
+            ]
+          }
+        ],
+        "success_criteria": [
+          "El trigger fue validado y clasificado.",
+          "Existe evidencia de revision o derivacion.",
+          "Si no hay accion directa en Zabbix, el ticket queda documentado para otra capa de remediacion."
+        ]
+      },
+      "action_plan_version": "v1",
+      "approved_by_user_id": null,
+      "approved_at": null,
+      "rejected_by_user_id": null,
+      "rejected_at": null,
+      "execution_status": "DRY_RUN_SUCCESS",
+      "execution_logs": [
+        {
+          "timestamp": "2026-03-11T21:51:49.426506+00:00",
+          "level": "INFO",
+          "message": "Victor toma el ticket en estado pending.",
+          "extra": {
+            "ticket_id": 1001
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426510+00:00",
+          "level": "INFO",
+          "message": "Se valida el finding origen.",
+          "extra": {
+            "finding_id": "zbx-trig-24327",
+            "finding_type": "informational_trigger"
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426514+00:00",
+          "level": "INFO",
+          "message": "Dry-run MCP preparado para trigger_get.",
+          "extra": {
+            "purpose": "Confirmar el trigger informativo y su ultima modificacion.",
+            "params": {
+              "search": {
+                "description": "App-ID version has changed to {ITEM.VALUE1}"
+              },
+              "limit": 10
+            }
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426524+00:00",
+          "level": "INFO",
+          "message": "Dry-run MCP preparado para host_get.",
+          "extra": {
+            "purpose": "Resolver el activo afectado.",
+            "params": {
+              "search": {
+                "name": "PA-440"
+              },
+              "limit": 5
+            }
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426608+00:00",
+          "level": "INFO",
+          "message": "Dry-run MCP preparado para item_get.",
+          "extra": {
+            "purpose": "Buscar items relacionados para identificar el valor que cambio.",
+            "params": {
+              "search": {
+                "name": "App-ID"
+              },
+              "limit": 10
+            }
+          }
+        },
+        {
+          "timestamp": "2026-03-11T21:51:49.426617+00:00",
+          "level": "INFO",
+          "message": "Dry-run MCP preparado para event_acknowledge.",
+          "extra": {
+            "purpose": "Dejar constancia del analisis o derivacion.",
+            "params": {
+              "eventids": [
+                "resolved-at-runtime"
+              ],
+              "message": "Victor revisa cambio observado en zbx-trig-24327"
+            }
+          }
+        }
+      ],
+      "verification_status": "SIMULATED_PASS",
+      "verification_logs": [
+        {
+          "timestamp": "2026-03-11T21:51:49.426621+00:00",
+          "level": "INFO",
+          "message": "Validacion simulada completada.",
+          "extra": {
+            "success_criteria": [
+              "El trigger fue validado y clasificado.",
+              "Existe evidencia de revision o derivacion.",
+              "Si no hay accion directa en Zabbix, el ticket queda documentado para otra capa de remediacion."
+            ]
+          }
+        }
+      ],
+      "requires_approval": false,
+      "dry_run": true,
+      "severity": "INFORMATION",
+      "risk_score": 2.0,
+      "finding_type": "informational_trigger",
+      "asset": {
+        "host": "PA-440",
+        "ip": "N/A",
+        "port": "161",
+        "protocol": "snmp/agent"
+      },
+      "finding": {
+        "name": "App-ID version has changed to {ITEM.VALUE1}",
+        "severity": "information",
+        "cvss": 2.0,
+        "cve": "CVE-2024-001",
+        "oid": "zbx-trig-24327",
+        "host": "PA-440 (N/A)",
+        "port": "161",
+        "protocol": "snmp/agent",
+        "description": "ESTADO OK: App-ID version has changed to {ITEM.VALUE1}",
+        "solution": "Accion requerida en consola Zabbix.",
+        "impact": "Monitoreo activo o recurso afectado.",
+        "finding_type": "informational_trigger"
+      },
+      "remediation_context": {
+        "cve": "CVE-2024-001",
+        "impact": "Monitoreo activo o recurso afectado.",
+        "solution_hint": "Accion requerida en consola Zabbix."
+      }
+    }
+  ]
+}

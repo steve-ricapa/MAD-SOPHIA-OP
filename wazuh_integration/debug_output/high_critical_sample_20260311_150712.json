@@ -1,0 +1,9 @@
+{
+    "searched_from": "2026-03-10T20:07:12.175318+00:00",
+    "total_alerts_scanned": 0,
+    "high_critical_counts": {
+        "critical": 0,
+        "high": 0
+    },
+    "sample_findings": []
+}

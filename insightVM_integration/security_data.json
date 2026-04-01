@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "sources": [
+      "insightvm"
+    ]
+  },
+  "insightvm": {
+    "assets": {
+      "error": "HTTP 401 -> {\n  \"status\" : \"UNAUTHORIZED\",\n  \"message\" : \"An unexpected error occurred. See the log file for more information or contact support.\",\n  \"_links\" : {\n    \"self\" : {\n      \"href\" : \"https://192.168.18.206:3780/api/3/assets?page=0\\u0026size=200\"\n    }\n  }\n}"
+    },
+    "vulnerabilities": {
+      "error": "'resources'"
+    }
+  }
+}

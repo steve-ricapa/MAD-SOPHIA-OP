@@ -1,0 +1,9 @@
+2026-01-23 13:09:12 INFO main - Cargado .env desde: C:\Users\nicol\OneDrive\Desktop\insightvm_agent\.env
+2026-01-23 13:09:12 INFO agents.insightvm - Recolectando datos InsightVM
+2026-01-23 13:09:12 DEBUG urllib3.connectionpool - Starting new HTTPS connection (1): us.api.insight.rapid7.com:443
+2026-01-23 13:09:13 DEBUG urllib3.connectionpool - https://us.api.insight.rapid7.com:443 "GET /vm/v3/assets?page=0&size=200 HTTP/1.1" 401 26
+2026-01-23 13:09:13 DEBUG urllib3.connectionpool - https://us.api.insight.rapid7.com:443 "GET /vm/v3/vulnerabilities?page=0&size=200 HTTP/1.1" 401 26
+2026-01-23 13:09:13 INFO agents.openvas - Recolectando datos OpenVAS
+2026-01-23 13:09:15 INFO main - Guardado JSON crudo: security_data.json
+2026-01-23 13:09:15 INFO main - Guardado JSON normalizado: security_data_normalized.json
+2026-01-23 13:09:15 INFO main - Finalizado.

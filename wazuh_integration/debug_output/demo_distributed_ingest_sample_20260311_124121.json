@@ -1,0 +1,283 @@
+{
+    "scan_id": "76d242db-2841-4e0f-9b97-de48df2a3179",
+    "company_id": 1,
+    "api_key": "***REDACTED***",
+    "scanned_at": "2026-03-11T17:41:21.217373+00:00",
+    "event_type": "wazuh_alerts_report",
+    "scanner_type": "wazuh",
+    "scan_summary": {
+        "scan_id": "76d242db-2841-4e0f-9b97-de48df2a3179",
+        "scan_name": "Wazuh Demo Distributed Payload",
+        "status": "completed",
+        "total_hosts": 4,
+        "scanned_at": "2026-03-11T17:41:21.217373+00:00",
+        "cvss_max": 9.8,
+        "scanner_type": "wazuh",
+        "disaster_count": 13,
+        "high_count": 7,
+        "average_count": 2,
+        "warning_count": 2,
+        "information_count": 0,
+        "not_classified_count": 0,
+        "metrics": {
+            "trends": {
+                "severity_levels": {
+                    "critical": 13,
+                    "high": 7,
+                    "medium": 2,
+                    "low": 2
+                }
+            },
+            "tops": {
+                "top_rules": [
+                    {
+                        "desc": "Demo critical findings",
+                        "count": 13
+                    },
+                    {
+                        "desc": "Demo high findings",
+                        "count": 7
+                    },
+                    {
+                        "desc": "Demo medium findings",
+                        "count": 2
+                    },
+                    {
+                        "desc": "Demo low findings",
+                        "count": 2
+                    }
+                ],
+                "top_agents": [
+                    {
+                        "name": "demo-agent-1",
+                        "count": 6
+                    },
+                    {
+                        "name": "demo-agent-2",
+                        "count": 6
+                    },
+                    {
+                        "name": "demo-agent-3",
+                        "count": 6
+                    },
+                    {
+                        "name": "demo-agent-4",
+                        "count": 6
+                    }
+                ]
+            }
+        }
+    },
+    "findings": [
+        {
+            "dedup_id": "demo-wazuh-critical-001",
+            "timestamp": "2026-03-11T17:17:21.217373+00:00",
+            "severity": "critical",
+            "name": "Demo ransomware behavior detected #1",
+            "host": "demo-host-1",
+            "description": "Synthetic Wazuh demo finding for dashboard validation (critical).",
+            "rule": {
+                "id": "demo-C001",
+                "level": 15,
+                "description": "Demo ransomware behavior detected #1",
+                "groups": [
+                    "ransomware",
+                    "malware",
+                    "demo"
+                ]
+            },
+            "agent": {
+                "id": "D001",
+                "name": "demo-agent-1",
+                "ip": "10.10.0.10"
+            },
+            "mitre": {
+                "ids": [
+                    "T1486"
+                ],
+                "techniques": [
+                    "Data Encrypted for Impact"
+                ],
+                "tactics": [
+                    "Impact"
+                ]
+            },
+            "compliance": {
+                "pci_dss": [
+                    "10.6.1"
+                ],
+                "nist_800_53": [
+                    "AU.6"
+                ]
+            }
+        },
+        {
+            "dedup_id": "demo-wazuh-critical-002",
+            "timestamp": "2026-03-11T17:18:21.217373+00:00",
+            "severity": "critical",
+            "name": "Demo ransomware behavior detected #2",
+            "host": "demo-host-2",
+            "description": "Synthetic Wazuh demo finding for dashboard validation (critical).",
+            "rule": {
+                "id": "demo-C002",
+                "level": 15,
+                "description": "Demo ransomware behavior detected #2",
+                "groups": [
+                    "ransomware",
+                    "malware",
+                    "demo"
+                ]
+            },
+            "agent": {
+                "id": "D002",
+                "name": "demo-agent-2",
+                "ip": "10.10.0.11"
+            },
+            "mitre": {
+                "ids": [
+                    "T1486"
+                ],
+                "techniques": [
+                    "Data Encrypted for Impact"
+                ],
+                "tactics": [
+                    "Impact"
+                ]
+            },
+            "compliance": {
+                "pci_dss": [
+                    "10.6.1"
+                ],
+                "nist_800_53": [
+                    "AU.6"
+                ]
+            }
+        },
+        {
+            "dedup_id": "demo-wazuh-critical-003",
+            "timestamp": "2026-03-11T17:19:21.217373+00:00",
+            "severity": "critical",
+            "name": "Demo ransomware behavior detected #3",
+            "host": "demo-host-3",
+            "description": "Synthetic Wazuh demo finding for dashboard validation (critical).",
+            "rule": {
+                "id": "demo-C003",
+                "level": 15,
+                "description": "Demo ransomware behavior detected #3",
+                "groups": [
+                    "ransomware",
+                    "malware",
+                    "demo"
+                ]
+            },
+            "agent": {
+                "id": "D003",
+                "name": "demo-agent-3",
+                "ip": "10.10.0.12"
+            },
+            "mitre": {
+                "ids": [
+                    "T1486"
+                ],
+                "techniques": [
+                    "Data Encrypted for Impact"
+                ],
+                "tactics": [
+                    "Impact"
+                ]
+            },
+            "compliance": {
+                "pci_dss": [
+                    "10.6.1"
+                ],
+                "nist_800_53": [
+                    "AU.6"
+                ]
+            }
+        },
+        {
+            "dedup_id": "demo-wazuh-critical-004",
+            "timestamp": "2026-03-11T17:20:21.217373+00:00",
+            "severity": "critical",
+            "name": "Demo ransomware behavior detected #4",
+            "host": "demo-host-4",
+            "description": "Synthetic Wazuh demo finding for dashboard validation (critical).",
+            "rule": {
+                "id": "demo-C004",
+                "level": 15,
+                "description": "Demo ransomware behavior detected #4",
+                "groups": [
+                    "ransomware",
+                    "malware",
+                    "demo"
+                ]
+            },
+            "agent": {
+                "id": "D004",
+                "name": "demo-agent-4",
+                "ip": "10.10.0.13"
+            },
+            "mitre": {
+                "ids": [
+                    "T1486"
+                ],
+                "techniques": [
+                    "Data Encrypted for Impact"
+                ],
+                "tactics": [
+                    "Impact"
+                ]
+            },
+            "compliance": {
+                "pci_dss": [
+                    "10.6.1"
+                ],
+                "nist_800_53": [
+                    "AU.6"
+                ]
+            }
+        },
+        {
+            "dedup_id": "demo-wazuh-critical-005",
+            "timestamp": "2026-03-11T17:21:21.217373+00:00",
+            "severity": "critical",
+            "name": "Demo ransomware behavior detected #5",
+            "host": "demo-host-1",
+            "description": "Synthetic Wazuh demo finding for dashboard validation (critical).",
+            "rule": {
+                "id": "demo-C005",
+                "level": 15,
+                "description": "Demo ransomware behavior detected #5",
+                "groups": [
+                    "ransomware",
+                    "malware",
+                    "demo"
+                ]
+            },
+            "agent": {
+                "id": "D001",
+                "name": "demo-agent-1",
+                "ip": "10.10.0.10"
+            },
+            "mitre": {
+                "ids": [
+                    "T1486"
+                ],
+                "techniques": [
+                    "Data Encrypted for Impact"
+                ],
+                "tactics": [
+                    "Impact"
+                ]
+            },
+            "compliance": {
+                "pci_dss": [
+                    "10.6.1"
+                ],
+                "nist_800_53": [
+                    "AU.6"
+                ]
+            }
+        }
+    ]
+}

@@ -1,0 +1,590 @@
+{
+    "searched_from": "2026-03-04T20:39:01.634694+00:00",
+    "total_alerts_scanned": 2285,
+    "high_critical_counts": {
+        "critical": 123,
+        "high": 91
+    },
+    "sample_findings": [
+        {
+            "dedup_id": "wazuh-R2Wt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:29.923-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-RWWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:29.923-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-RmWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:29.923-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-SGWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:29.923-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-S2Wt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:31.924-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-TGWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:31.924-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-UGWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:31.924-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-SmWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:31.925-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-T2Wt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:31.925-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-TWWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:31.925-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-TmWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:31.925-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-UWWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:31.925-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-UmWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:33.926-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-V2Wt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:33.926-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-VWWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:33.926-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-VmWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:33.926-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-WGWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:33.926-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-U2Wt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:33.928-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-VGWt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:33.928-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        },
+        {
+            "dedup_id": "wazuh-W2Wt1ZwBmarsqfvvuwMS",
+            "timestamp": "2026-03-09T21:57:35.927-0500",
+            "severity": "critical",
+            "name": "Alerta crítica manual disparada desde CLI",
+            "host": "wazuh",
+            "description": "Alerta crítica manual disparada desde CLI",
+            "rule": {
+                "id": "100100",
+                "level": 15,
+                "description": "Alerta crítica manual disparada desde CLI",
+                "groups": [
+                    "local",
+                    "syslog",
+                    "custom"
+                ]
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh",
+                "ip": ""
+            },
+            "mitre": {
+                "ids": [],
+                "techniques": [],
+                "tactics": []
+            },
+            "compliance": {}
+        }
+    ]
+}
