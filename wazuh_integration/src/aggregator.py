@@ -102,8 +102,9 @@ class Aggregator:
             "company_id": config['company_id'],
             "api_key": config['api_key'],
             "scanned_at": now,
-            "event_type": "wazuh_alerts_report",
+            "event_type": "vuln_scan_report",
             "scanner_type": "wazuh",
+            "agent_type": "wazuh",
             "scan_summary": scan_summary,
             "findings": processed_alerts
         }

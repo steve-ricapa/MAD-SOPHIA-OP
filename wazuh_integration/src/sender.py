@@ -10,9 +10,15 @@ class Sender:
 
     async def send_report(self, report, max_retries=3):
         """Sends the processed report to the backend (Compression disabled)."""
-        headers = {
-            "Content-Type": "application/json"
-        }
+        api_key = None
+        if isinstance(report, dict):
+            api_key = report.get("api_key")
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["x-api-key"] = api_key
+            headers["X-API-Key"] = api_key
+            headers["Authorization"] = f"Bearer {api_key}"
 
         async with aiohttp.ClientSession(headers=headers) as session:
             for attempt in range(max_retries):

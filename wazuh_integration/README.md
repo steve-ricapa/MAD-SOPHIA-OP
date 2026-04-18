@@ -1,70 +1,80 @@
-# WazuhC Agent 🚀
+# Wazuh Integration Agent
 
-El **WazuhC Agent** es un conector de alto rendimiento diseñado para extraer, normalizar y sincronizar alertas de seguridad desde un entorno Wazuh hacia un backend centralizado en tiempo real.
+Conector incremental para extraer alertas desde Wazuh, normalizarlas y enviarlas al backend TxDxAI.
 
-## 🌟 Características Principales
+## Que hace
 
-- **Sincronización Incremental**: Utiliza un sistema de checkpoints (`state/agent_state.db`) para asegurar que no se envíen datos duplicados y que no se pierda ninguna alerta tras un reinicio.
-- **Reducción Inteligente de Datos**: Filtra el ruido (alertas de nivel bajo) mediante el parámetro `MIN_RULE_LEVEL`, enviando solo lo que es crítico para tu SOC.
-- **Enriquecimiento MITRE ATT&CK**: Mapea automáticamente las alertas a tácticas y técnicas de MITRE, permitiendo visualizaciones avanzadas en el dashboard.
-- **Agregación Real-time**: Envía reportes que incluyen "Top Agents" y "Top Rules", optimizando la carga de procesamiento del backend.
-- **Logs Profesionales en JSON**: Toda la telemetría del agente se guarda en `debug_output/agent_console.json` para auditoría y debug.
-- **Resiliencia**: Sistema de reintentos automático con backoff exponencial para comunicaciones con el backend.
+- Consulta alertas del indexer en bucle (`POLL_INTERVAL_ALERTS`).
+- Filtra por severidad minima (`MIN_RULE_LEVEL`).
+- Evita reenvio de duplicados usando:
+  - checkpoint temporal (`alerts_timestamp`), y
+  - tabla de IDs procesados en SQLite (`processed_alerts`).
+- Si el backend falla, guarda el payload fallido para reintento/manual review.
+- Reintenta automaticamente payloads fallidos cada `RETRY_FAILED_INTERVAL_SECONDS`.
+- Envía payloads al backend (`TXDXAI_INGEST_URL`).
+- Guarda evidencia local de cada ciclo para auditoria y analisis.
 
-## 🏗️ Arquitectura del Agente
+## Estructura
 
-El agente está dividido en componentes modulares:
-
-1.  **Poller (Alert Feed)**: Consulta el Wazuh Indexer (OpenSearch) cada 2-10 segundos buscando deltas.
-2.  **Inventory Poller**: Monitorea el estado de salud y conexión de los agentes de Wazuh.
-3.  **Aggregator**: Transforma la data cruda en el formato unificado `finding` y calcula métricas.
-4.  **Sender**: Comprime (gzip) y envía los reportes al backend mediante HTTPS.
-5.  **State Store**: Gestiona la persistencia de los cursores de sincronización en SQLite.
-
-## 🛠️ Configuración
-
-Crea un archivo `.env` en la raíz del proyecto basado en `.env.example`:
-
-```env
-# Conexión Wazuh API
-WAZUH_API_HOST=https://192.168.50.83:55000
-WAZUH_API_USER=wazuh-wui
-WAZUH_API_PASSWORD=tu_password
-
-# Conexión Wazuh Indexer
-WAZUH_INDEXER_HOST=https://192.168.50.83:9200
-WAZUH_INDEXER_USER=admin
-WAZUH_INDEXER_PASSWORD=tu_password
-
-# Configuración del Agente
-POLL_INTERVAL_ALERTS=10
-POLL_INTERVAL_AGENTS=60
-MIN_RULE_LEVEL=7  # Solo alertas High/Critical
-DRY_RUN=true      # Cambiar a false para enviar al backend
-
-# Backend Ingest
-TXDXAI_INGEST_URL=https://api.tu-backend.com/ingest
-TXDXAI_COMPANY_ID=9
-TXDXAI_API_KEY=tu_token_de_seguridad
+```text
+wazuh_integration/
+  main.py
+  .env.example
+  requirements.txt
+  src/
+    aggregator.py
+    api.py
+    indexer.py
+    sender.py
+    state.py
+  state/
+    agent_state.db
+  artifacts/
+    logs/
+    raw_batches/
+    payloads/
+    failed_payloads/
 ```
 
-## 🚀 Inicio Rápido
+## Variables principales
 
-1.  **Instalar dependencias**:
-    ```powershell
-    pip install -r requirements.txt
-    ```
+- Wazuh API: `WAZUH_API_HOST`, `WAZUH_API_USER`, `WAZUH_API_PASSWORD`
+- Wazuh Indexer: `WAZUH_INDEXER_HOST`, `WAZUH_INDEXER_USER`, `WAZUH_INDEXER_PASSWORD`
+- Backend: `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY`
+- Bucle: `POLL_INTERVAL_ALERTS=30`, `POLL_INTERVAL_AGENTS=60`
+- Reintentos: `RETRY_FAILED_INTERVAL_SECONDS=30`
+- Filtro: `MIN_RULE_LEVEL=7`
+- Estado: `CHECKPOINT_FILE=state/agent_state.db`
+- Evidencias: `ARTIFACTS_DIR=artifacts`
+- Heartbeat opcional: `SEND_HEARTBEAT=false`
+- Seguridad TLS: `WAZUH_API_VERIFY_TLS`, `WAZUH_INDEXER_VERIFY_TLS`
 
-2.  **Ejecutar el agente**:
-    ```powershell
-    python main.py
-    ```
+## Perfiles por cliente
 
-## 📂 Salidas y Reportes
+Puedes tomar valores base desde:
 
-- **Consola**: Muestra el flujo de sincronización, detecciones y salud del inventario.
-- **Reportes Locales**: Si `DRY_RUN=true`, los JSON se guardan en `debug_output/report_*.json`.
-- **Telemetría**: El historial completo se guarda en `debug_output/agent_console.json`.
+- `wazuh_integration/config_profiles/client_realtime_30s.env`
+- `wazuh_integration/config_profiles/client_standard_15m.env`
+- `wazuh_integration/config_profiles/client_lowfreq_1h.env`
 
----
-*Desarrollado para la integración avanzada de SIEM y Dashboards de Seguridad.*
+## Ejecucion
+
+```bash
+py -m pip install -r requirements.txt
+py main.py
+```
+
+## Archivos de salida
+
+- Logs del agente: `artifacts/logs/agent_console.json`
+- Lotes crudos recibidos: `artifacts/raw_batches/raw_*.json`
+- Payloads enviados: `artifacts/payloads/payload_*.json`
+- Payloads fallidos: `artifacts/failed_payloads/failed_*.json`
+
+Con esto puedes auditar exactamente que llego desde Wazuh y que se intento enviar al backend en cada ciclo.
+
+## Tests
+
+```bash
+py -m unittest discover -s tests -p "test_*.py"
+```
