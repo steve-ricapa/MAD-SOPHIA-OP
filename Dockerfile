@@ -17,7 +17,7 @@ EXPOSE 8080
 # - zabix_integration/agent.py
 # - openVAS_integration/main.py
 # - insightVM_integration/main.py
-# - uptimekuma_integration/agent.py
+
 ENV AGENT_PATH=wazuh_integration/main.py
 
 CMD ["sh", "-c", "python ${AGENT_PATH}"]
