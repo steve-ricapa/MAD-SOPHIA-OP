@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+artifacts/
+debug_output/
+state/*.db
