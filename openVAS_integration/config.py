@@ -37,7 +37,7 @@ META_MAX_KB  = _env_int("META_MAX_KB", 256)
 
 TXDXAI_INGEST_URL = _env("TXDXAI_INGEST_URL", "console://stdout") or "console://stdout"
 TXDXAI_COMPANY_ID = _env_int("TXDXAI_COMPANY_ID", 0)
-TXDXAI_API_KEY    = _env("TXDXAI_API_KEY", "") or ""
+TXDXAI_API_KEY    = _env("TXDXAI_API_KEY_OPENVAS", _env("TXDXAI_API_KEY", _env("API_KEY", ""))) or ""
 
 GVM_HOST = _env("GVM_HOST", "127.0.0.1") or "127.0.0.1"
 GVM_PORT = _env_int("GVM_PORT", 9390)

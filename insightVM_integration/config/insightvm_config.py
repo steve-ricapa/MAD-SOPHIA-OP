@@ -67,7 +67,11 @@ def load_backend_settings() -> BackendSettings:
     return BackendSettings(
         url=os.getenv("TXDXAI_INGEST_URL"),
         company_id=os.getenv("TXDXAI_COMPANY_ID"),
-        api_key=os.getenv("TXDXAI_API_KEY"),
+        api_key=(
+            os.getenv("TXDXAI_API_KEY_INSIGHTVM")
+            or os.getenv("TXDXAI_API_KEY")
+            or os.getenv("API_KEY")
+        ),
         verify=_truthy(os.getenv("BACKEND_VERIFY_SSL"), True),
     )
 

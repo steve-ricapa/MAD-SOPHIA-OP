@@ -258,7 +258,7 @@ Sin una memoria, enviaría duplicados infinitamente.
 |---|---|---|---|
 | `TXDXAI_INGEST_URL` | string | `https://host/ingest` | Endpoint destino |
 | `TXDXAI_COMPANY_ID` | int | `1` | Identificador lógico |
-| `TXDXAI_API_KEY` | string | `abc123` | Token simple |
+| `TXDXAI_API_KEY_OPENVAS` | string | `abc123` | Token simple (fallback: `TXDXAI_API_KEY`) |
 
 > En modo simplificado, el URL puede ser informativo (`console://stdout`) y la API key puede ir vacía.
 
