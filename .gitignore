@@ -1,1 +1,58 @@
+# -----------------------------
+# Environment files (secrets)
+# -----------------------------
 .env
+.env.*
+*.env
+*.env.*
+**/.env
+**/.env.*
+**/*.env
+**/*.env.*
+
+# Keep templates/versioned examples
+!.env.example
+!**/.env.example
+!.env.template
+!**/.env.template
+
+# These profiles are intentionally versioned
+!wazuh_integration/config_profiles/*.env
+
+# -----------------------------
+# Python caches/build artifacts
+# -----------------------------
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# -----------------------------
+# Logs and OS/editor junk
+# -----------------------------
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# -----------------------------
+# Runtime artifacts (integrations)
+# -----------------------------
+nessus_integration/queue/
+nessus_integration/state.json
+nessus_integration/debug_report.json
+nessus_integration/last_payload_sent.json
+nessus_integration/raw_scans_snapshot.json
+
+wazuh_integration/artifacts/
+wazuh_integration/debug_output/
+wazuh_integration/state/*.db
