@@ -1,126 +1,123 @@
 # MAD-SOPHIA-OP
 
-Stack de integraciones de seguridad/monitoreo ejecutadas con Docker Compose usando una sola imagen compartida.
+Plataforma de integraciones de seguridad/monitoreo ejecutada con Docker Compose usando una sola imagen compartida.
 
-## Resumen rapido
+## Indice
 
-- Una imagen: `mad-sophia-op:latest`
-- Seis servicios:
-  - `wazuh`
-  - `zabbix`
-  - `openvas`
-  - `insightvm`
-  - `uptimekuma`
-  - `nessus`
-- Cada servicio corre en su propio contenedor con logs separados.
-- Si un servicio falla, los demas siguen funcionando.
+1. [Arquitectura](#arquitectura)
+2. [Servicios](#servicios)
+3. [Requisitos](#requisitos)
+4. [Estructura del repositorio](#estructura-del-repositorio)
+5. [Modelo de entorno-env](#modelo-de-entorno-env)
+6. [Configuracion inicial](#configuracion-inicial)
+7. [Despliegue](#despliegue)
+8. [Operacion diaria](#operacion-diaria)
+9. [Lapsos de ejecucion](#lapsos-de-ejecucion)
+10. [Modos y variables sensibles](#modos-y-variables-sensibles)
+11. [Troubleshooting](#troubleshooting)
+12. [Buenas practicas](#buenas-practicas)
+13. [Documentacion relacionada](#documentacion-relacionada)
 
-## Estructura de ejecucion
+## Arquitectura
 
-- `Dockerfile`: construye la imagen base con todas las dependencias.
-- `docker-compose.yml`: levanta los 6 servicios con esa misma imagen.
-- `.env`: configuracion real (secretos y tiempos).
-- `.env.example`: plantilla documentada sin secretos.
+- Una sola imagen Docker: `mad-sophia-op:latest`.
+- Seis contenedores (un proceso por integracion) reutilizando esa imagen.
+- Un `.env` general en raiz.
+- Variables prefijadas en Compose para evitar colisiones.
+
+## Servicios
+
+- `wazuh`
+- `zabbix`
+- `openvas`
+- `insightvm`
+- `uptimekuma`
+- `nessus`
+
+Si un servicio falla en runtime, los demas siguen activos.
 
 ## Requisitos
 
-- Docker Engine + Docker Compose plugin (`docker compose`)
-- Conectividad de red desde el host hacia tus fuentes:
-  - Wazuh API/Indexer
-  - Zabbix API
-  - OpenVAS/GVMD
-  - InsightVM API
-  - Uptime Kuma
-  - Nessus
-  - Backend `TXDXAI_INGEST_URL`
+- Docker Engine + Docker Compose plugin (`docker compose`).
+- Conectividad de red hacia:
+  - Wazuh API e Indexer.
+  - Zabbix API.
+  - OpenVAS/GVMD.
+  - InsightVM API.
+  - Uptime Kuma.
+  - Nessus.
+  - Backend `TXDXAI_INGEST_URL`.
 
-## Configuracion de entorno
+## Estructura del repositorio
 
-1. Copia la plantilla:
+- `Dockerfile`: construye la imagen unica.
+- `docker-compose.yml`: orquesta los 6 servicios.
+- `.env`: configuracion real (no versionada).
+- `.env.example`: plantilla oficial documentada (sin secretos).
+- `GUIA_DOCKER_COMPOSE.md`: operacion y comandos Compose.
+- `GUIA_LAPSOS_AGENTES.md`: defaults y ubicacion de lapsos en codigo.
+
+## Modelo de entorno (.env)
+
+Hay dos capas de variables:
+
+1. Variables prefijadas para Docker Compose (recomendado):
+- `WAZUH_*`, `ZABBIX_*`, `OPENVAS_*`, `INSIGHTVM_*`, `UPTIME_*`, `NESSUS_*`.
+- Evitan que una variable global pise otra.
+
+2. Variables locales por integracion (modo manual):
+- Ejemplos: `POLL_INTERVAL_SECONDS`, `SCANNER_TYPE`, `OUTPUT_MODE`.
+- Se usan cuando ejecutas un agente sin Compose.
+
+Plantilla base:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Completa en `.env`:
-- URLs/credenciales de cada integracion
-- API keys de backend por integracion (`TXDXAI_API_KEY_*`)
-- lapsos prefijados para Compose (`WAZUH_*`, `ZABBIX_*`, `OPENVAS_*`, `UPTIME_*`, `NESSUS_*`, `INSIGHTVM_*`)
+## Configuracion inicial
 
-3. Punto importante:
-- En Compose ya se usan variables prefijadas para evitar colisiones.
-- Si corres un agente manualmente (sin Compose), entonces usa sus variables locales (`POLL_INTERVAL_SECONDS`, `SCANNER_TYPE`, etc.).
-
-## Modo real vs simulado (OpenVAS)
-
-OpenVAS soporta dos modos en Compose:
-
-- Real: `OPENVAS_COLLECTOR=gmp`
-- Simulado: `OPENVAS_COLLECTOR=simulated`
-
-Cambio rapido:
-
-```bash
-# en .env
-OPENVAS_COLLECTOR=simulated
-
-# aplicar
-docker compose up -d openvas
-```
-
-## SCANNER_TYPE en Uptime y Nessus
-
-En Compose no depende del `SCANNER_TYPE` global repetido:
-
-- Uptime usa `UPTIME_SCANNER_TYPE` (default `uptimekuma`)
-- Nessus usa `NESSUS_SCANNER_TYPE` (default `nessus`)
-
-## Archivos runtime (state/debug) que vas a ver
-
-Por diseno, los agentes generan archivos JSON locales.
-
-- Utiles/operativos:
-  - `state.json` o `state/agent_state.db`: deduplicacion/checkpoint.
-  - `queue/*.json` o `failed_*.json`: reintentos cuando el backend falla.
-- De debug/auditoria:
-  - `debug_report.json`
-  - `last_payload_sent.json`
-  - `raw_*snapshot.json` / `artifacts/raw_batches/*.json`
-
-Recomendacion:
-- Mantener `state.*` y colas de retry.
-- No versionar en Git snapshots/debug runtime.
+1. Copia `.env.example` a `.env`.
+2. Completa hosts, usuarios, passwords y `TXDXAI_API_KEY_*`.
+3. Ajusta company ID (`TXDXAI_COMPANY_ID`) segun tu tenant.
+4. Define lapsos prefijados para Compose si quieres sobreescribir defaults.
 
 ## Despliegue
 
-### Build + up (todo)
+Validar config renderizada:
+
+```bash
+docker compose config
+```
+
+Build + levantar todo:
 
 ```bash
 docker compose up -d --build
 ```
 
-### Ver estado
+Estado:
 
 ```bash
 docker compose ps
 docker compose top
 ```
 
-### Validar compose renderizado
+Detener stack:
 
 ```bash
-docker compose config
+docker compose down
 ```
 
-## Operacion diaria (logs y control)
+## Operacion diaria
 
-### Logs de todo
+Logs de todo el stack:
 
 ```bash
 docker compose logs -f -t
 ```
 
-### Logs por integracion
+Logs por servicio:
 
 ```bash
 docker compose logs -f wazuh
@@ -131,40 +128,58 @@ docker compose logs -f uptimekuma
 docker compose logs -f nessus
 ```
 
-### Logs recientes
+Reiniciar un servicio:
 
 ```bash
-docker compose logs --since=10m wazuh
-docker compose logs --tail=200 nessus
+docker compose restart <servicio>
 ```
 
-### Reiniciar un servicio
+Recrear un servicio:
 
 ```bash
-docker compose restart wazuh
+docker compose up -d --force-recreate <servicio>
 ```
 
-### Recrear un servicio
+Levantar un subconjunto:
 
 ```bash
-docker compose up -d --force-recreate wazuh
+docker compose up -d wazuh zabbix insightvm uptimekuma nessus
 ```
 
-### Levantar solo un servicio
+## Lapsos de ejecucion
 
-```bash
-docker compose up -d openvas
-```
+Perfil recomendado (balanceado):
 
-### Detener todo
+- Wazuh: `WAZUH_POLL_INTERVAL_ALERTS=60`, `WAZUH_POLL_INTERVAL_AGENTS=600`
+- Zabbix: `ZABBIX_INTERVAL=180`
+- OpenVAS: `OPENVAS_POLL_SECONDS=600`
+- InsightVM: `INSIGHTVM_INTERVAL_SECONDS=600`
+- Uptime Kuma: `UPTIME_POLL_INTERVAL_SECONDS=120`, `UPTIME_FORCE_SEND_EVERY_CYCLES=15`
+- Nessus: `NESSUS_POLL_INTERVAL_SECONDS=600`, `NESSUS_FORCE_SEND_EVERY_CYCLES=6`
 
-```bash
-docker compose down
-```
+Detalle tecnico completo de defaults y uso en loops:
+- Ver `GUIA_LAPSOS_AGENTES.md`.
 
-## Troubleshooting rapido
+## Modos y variables sensibles
 
-### Un servicio no levanta
+OpenVAS:
+
+- Real: `OPENVAS_COLLECTOR=gmp`
+- Simulado: `OPENVAS_COLLECTOR=simulated`
+
+Uptime y Nessus (scanner type):
+
+- Compose: usar `UPTIME_SCANNER_TYPE` y `NESSUS_SCANNER_TYPE`.
+- Manual: usar `SCANNER_TYPE` en cada integracion.
+
+Uptime Kuma auth:
+
+- API Keys habilitadas: usar `UPTIME_KUMA_API_KEY_ID` + `UPTIME_KUMA_API_KEY`.
+- Sin API Keys: usar `UPTIME_KUMA_USERNAME` + `UPTIME_KUMA_PASSWORD`.
+
+## Troubleshooting
+
+Servicio caido:
 
 ```bash
 docker compose ps
@@ -172,35 +187,44 @@ docker compose logs --tail=300 <servicio>
 docker compose restart <servicio>
 ```
 
-### Ver variables activas dentro del contenedor
+Ver env dentro de contenedor:
 
 ```bash
 docker compose exec <servicio> sh -lc 'env | sort'
 ```
 
-### Verificar API key cargada (sin mostrar valor)
+Validar que API key cargo (sin exponer valor):
 
 ```bash
 docker compose exec wazuh sh -lc 'echo "LEN=${#TXDXAI_API_KEY_WAZUH}"'
+docker compose exec nessus sh -lc 'echo "LEN=${#TXDXAI_API_KEY_NESSUS}"'
+docker compose exec uptimekuma sh -lc 'echo "LEN=${#TXDXAI_API_KEY_UPTIMEKUMA}"'
 ```
 
-### Wazuh: validar auth API
+Wazuh auth 401:
 
 ```bash
 docker compose exec wazuh sh -lc 'curl -sk -u "$WAZUH_API_USER:$WAZUH_API_PASSWORD" "$WAZUH_API_HOST/security/user/authenticate?raw=true"'
 ```
 
-### Si cambias dependencias/codigo base
+Rebuild limpio:
 
 ```bash
 docker compose build --no-cache
 docker compose up -d
 ```
 
-## Archivos de referencia
+## Buenas practicas
 
-- [docker-compose.yml](./docker-compose.yml)
+- No subir secretos reales al repo.
+- Mantener `.env` en local y versionar solo `.env.example`.
+- No versionar archivos runtime (`state`, `queue`, `debug_report`, `raw_snapshot`).
+- Rotar credenciales si se exponen accidentalmente.
+
+## Documentacion relacionada
+
+- [Guia Docker Compose](./GUIA_DOCKER_COMPOSE.md)
+- [Guia de Lapsos](./GUIA_LAPSOS_AGENTES.md)
+- [Plantilla de entorno](./.env.example)
+- [Compose](./docker-compose.yml)
 - [Dockerfile](./Dockerfile)
-- [.env.example](./.env.example)
-- [GUIA_DOCKER_COMPOSE.md](./GUIA_DOCKER_COMPOSE.md)
-- [GUIA_LAPSOS_AGENTES.md](./GUIA_LAPSOS_AGENTES.md)
