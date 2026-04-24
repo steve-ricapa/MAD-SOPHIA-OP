@@ -18,7 +18,7 @@ Agente Python para consumir telemetria de Uptime Kuma desde `/metrics`, converti
 - `UPTIME_KUMA_USERNAME`, `UPTIME_KUMA_PASSWORD` (auth basica)
 - `UPTIME_KUMA_API_KEY_ID`, `UPTIME_KUMA_API_KEY` (si Uptime Kuma tiene API Keys habilitadas)
 - `OUTPUT_MODE` = `stdout | webhook | all`
-- `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY`
+- `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_UPTIMEKUMA` (fallback: `TXDXAI_API_KEY`)
 - `POLL_INTERVAL_SECONDS` (default: `15`)
 - `FORCE_SEND_EVERY_CYCLES` (default: `6`)
 - `INCLUDE_ALL_MONITORS` (default: `false`) para incluir todos los monitores en cada reporte.

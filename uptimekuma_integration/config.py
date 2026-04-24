@@ -69,7 +69,11 @@ def load_config() -> Config:
     output_mode = os.getenv("OUTPUT_MODE", "stdout").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
     company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
-    api_key = (os.getenv("TXDXAI_API_KEY") or os.getenv("API_KEY", "local_test_key")).strip()
+    api_key = (
+        os.getenv("TXDXAI_API_KEY_UPTIMEKUMA")
+        or os.getenv("TXDXAI_API_KEY")
+        or os.getenv("API_KEY", "local_test_key")
+    ).strip()
     scanner_type = os.getenv("SCANNER_TYPE", "uptimekuma").strip().lower()
     event_type = os.getenv("EVENT_TYPE", "vuln_scan_report").strip()
 

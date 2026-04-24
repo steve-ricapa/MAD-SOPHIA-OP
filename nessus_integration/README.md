@@ -20,7 +20,7 @@ Agente Python para consumir datos de Nessus, normalizarlos al formato unificado 
 - `NESSUS_SCAN_IDS` (opcional, IDs separados por coma)
 - `NESSUS_FOLDER_ID` (opcional)
 - `OUTPUT_MODE` = `stdout | webhook | all`
-- `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY`
+- `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_NESSUS` (fallback: `TXDXAI_API_KEY`)
 - `POLL_INTERVAL_SECONDS` (default: `60`)
 - `FORCE_SEND_EVERY_CYCLES` (default: `10`)
 - `INCLUDE_ALL_FINDINGS` (default: `true`)

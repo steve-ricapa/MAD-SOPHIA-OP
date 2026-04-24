@@ -56,7 +56,11 @@ def load_config() -> Config:
     output_mode = os.getenv("OUTPUT_MODE", "stdout").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
     company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
-    api_key = os.getenv("TXDXAI_API_KEY") or os.getenv("API_KEY", "local_test_key")
+    api_key = (
+        os.getenv("TXDXAI_API_KEY_ZABBIX")
+        or os.getenv("TXDXAI_API_KEY")
+        or os.getenv("API_KEY", "local_test_key")
+    )
     
     state_raw = os.getenv("STATE_FILE") or os.getenv("STATE_PATH", "state.json")
     interval = int(os.getenv("INTERVAL", "60"))

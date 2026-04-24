@@ -247,7 +247,11 @@ async def main():
     load_dotenv()
 
     company_id = int(os.getenv("TXDXAI_COMPANY_ID", 0))
-    api_key = os.getenv("TXDXAI_API_KEY")
+    api_key = (
+        os.getenv("TXDXAI_API_KEY_WAZUH")
+        or os.getenv("TXDXAI_API_KEY")
+        or os.getenv("API_KEY")
+    )
     indexer_host = os.getenv("WAZUH_INDEXER_HOST")
     indexer_user = os.getenv("WAZUH_INDEXER_USER")
     indexer_pass = os.getenv("WAZUH_INDEXER_PASSWORD")
