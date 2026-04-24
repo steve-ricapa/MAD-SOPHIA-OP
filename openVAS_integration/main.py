@@ -24,6 +24,15 @@ from services import (
     emit_payload, format_exception
 )
 
+OPENVAS_BANNER = r"""
+   ___                   __     ___    ____
+  / _ \ _ __   ___ _ __  \ \   / / \  / ___|
+ | | | | '_ \ / _ \ '_ \  \ \ / / _ \ \___ \
+ | |_| | |_) |  __/ | | |  \ V / ___ \ ___) |
+  \___/| .__/ \___|_| |_|   \_/_/   \_\____/
+       |_|
+"""
+
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -273,7 +282,8 @@ def build_dashboard_blocks(
     return metrics, entities
 
 
-print("=== AGENTE GMP (LAB) ===")
+print("[INFO] Starting OpenVAS Real-time Agent...")
+print(OPENVAS_BANNER)
 
 # ✅ valida config al arranque (falla rápido con mensaje claro)
 try:

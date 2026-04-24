@@ -1,0 +1,6 @@
+-r wazuh_integration/requirements.txt
+-r zabix_integration/requirements.txt
+-r openVAS_integration/requirements.txt
+-r insightVM_integration/requirements.txt
+-r uptimekuma_integration/requirements.txt
+-r nessus_integration/requirements.txt
