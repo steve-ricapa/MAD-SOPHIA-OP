@@ -261,7 +261,7 @@ async def main():
     api_pass = os.getenv("WAZUH_API_PASSWORD")
     api_verify_tls = parse_bool(os.getenv("WAZUH_API_VERIFY_TLS"), default=False)
     ingest_url = os.getenv("TXDXAI_INGEST_URL")
-    health_port = int(os.getenv("HEALTH_CHECK_PORT", 8080))
+    health_port = int(os.getenv("HEALTH_CHECK_PORT", 8000))
     checkpoint_file = os.getenv("CHECKPOINT_FILE", "state/agent_state.db")
 
     artifacts_dir = Path(os.getenv("ARTIFACTS_DIR", "artifacts"))
