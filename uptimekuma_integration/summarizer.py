@@ -55,6 +55,55 @@ def _monitor_port(monitor: Dict[str, Any]) -> str:
     return "0"
 
 
+def _to_int(value: Any, default: int = 0) -> int:
+    if value is None:
+        return default
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def _normalize_heartbeat_rows(rows: list[Any]) -> list[Dict[str, Any]]:
+    out: list[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        # Support both DB-native keys (msg/ping/time/duration)
+        # and collector-normalized keys (message/ping_ms/checked_at/duration_seconds).
+        message = row.get("msg") if row.get("msg") is not None else row.get("message")
+        ping = row.get("ping") if row.get("ping") is not None else row.get("ping_ms")
+        checked_at = row.get("time") if row.get("time") is not None else row.get("checked_at")
+        duration = row.get("duration") if row.get("duration") is not None else row.get("duration_seconds")
+        out.append(
+            {
+                "status": _to_int(row.get("status"), 0),
+                "message": _to_str(message, ""),
+                "ping_ms": _to_float(ping, 0.0),
+                "checked_at": _to_str(checked_at, ""),
+                "duration_seconds": _to_float(duration, 0.0),
+                "retries": _to_int(row.get("retries"), 0),
+            }
+        )
+    return out
+
+
 def _compact_tls_info(tls_info: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(tls_info, dict):
         return {}
@@ -135,44 +184,44 @@ def build_findings(
             "monitor_url": monitor.get("url"),
             "monitor_hostname": monitor.get("hostname"),
             "monitor_port": _monitor_port(monitor),
-            "interval_seconds": monitor_config.get("interval"),
-            "timeout_seconds": monitor_config.get("timeout"),
-            "max_retries": monitor_config.get("maxretries"),
-            "retry_interval_seconds": monitor_config.get("retry_interval"),
-            "method": monitor_config.get("method"),
-            "ignore_tls": monitor_config.get("ignore_tls"),
-            "upside_down": monitor_config.get("upside_down"),
-            "active": monitor_config.get("active"),
-            "parent_monitor_id": monitor_config.get("parent"),
-            "description": monitor_config.get("description"),
+            "interval_seconds": _to_int(monitor_config.get("interval"), 0),
+            "timeout_seconds": _to_float(monitor_config.get("timeout"), 0.0),
+            "max_retries": _to_int(monitor_config.get("maxretries"), 0),
+            "retry_interval_seconds": _to_int(monitor_config.get("retry_interval"), 0),
+            "method": _to_str(monitor_config.get("method"), ""),
+            "ignore_tls": _to_int(monitor_config.get("ignore_tls"), 0),
+            "upside_down": _to_int(monitor_config.get("upside_down"), 0),
+            "active": _to_int(monitor_config.get("active"), 0),
+            "parent_monitor_id": _to_int(monitor_config.get("parent"), 0),
+            "description": _to_str(monitor_config.get("description"), ""),
             "tags": tags,
             "latest_heartbeat": {
-                "status": latest_heartbeat.get("status"),
-                "message": latest_heartbeat.get("msg"),
-                "ping_ms": latest_heartbeat.get("ping"),
-                "checked_at": latest_heartbeat.get("time"),
-                "duration_seconds": latest_heartbeat.get("duration"),
-                "retries": latest_heartbeat.get("retries"),
+                "status": _to_int(latest_heartbeat.get("status"), 0),
+                "message": _to_str(latest_heartbeat.get("msg"), ""),
+                "ping_ms": _to_float(latest_heartbeat.get("ping"), 0.0),
+                "checked_at": _to_str(latest_heartbeat.get("time"), ""),
+                "duration_seconds": _to_float(latest_heartbeat.get("duration"), 0.0),
+                "retries": _to_int(latest_heartbeat.get("retries"), 0),
             },
-            "recent_heartbeats": recent_heartbeats,
+            "recent_heartbeats": _normalize_heartbeat_rows(recent_heartbeats),
             "cert": {
-                "is_valid_metric": cert_valid,
-                "days_remaining_metric": cert_days,
+                "is_valid_metric": _to_int(cert_valid, 0),
+                "days_remaining_metric": _to_float(cert_days, 0.0),
                 "details": _compact_tls_info(
                     db_data.get("latest_tls_info", {}) if isinstance(db_data.get("latest_tls_info"), dict) else {}
                 ),
             },
             "stats_24h": {
-                "up": stats_24h.get("up_24h"),
-                "down": stats_24h.get("down_24h"),
-                "avg_ping": stats_24h.get("avg_ping_24h"),
-                "min_ping": stats_24h.get("min_ping_24h"),
-                "max_ping": stats_24h.get("max_ping_24h"),
+                "up": _to_int(stats_24h.get("up_24h"), 0),
+                "down": _to_int(stats_24h.get("down_24h"), 0),
+                "avg_ping": _to_float(stats_24h.get("avg_ping_24h"), 0.0),
+                "min_ping": _to_float(stats_24h.get("min_ping_24h"), 0.0),
+                "max_ping": _to_float(stats_24h.get("max_ping_24h"), 0.0),
             },
             "stats_30d": {
-                "up": stats_30d.get("up_30d"),
-                "down": stats_30d.get("down_30d"),
-                "avg_ping": stats_30d.get("avg_ping_30d"),
+                "up": _to_int(stats_30d.get("up_30d"), 0),
+                "down": _to_int(stats_30d.get("down_30d"), 0),
+                "avg_ping": _to_float(stats_30d.get("avg_ping_30d"), 0.0),
             },
         }
 

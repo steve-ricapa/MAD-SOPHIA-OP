@@ -1,8 +1,0 @@
-.env
-__pycache__/
-*.pyc
-queue/
-state.json
-debug_report.json
-last_payload_sent.json
-raw_scans_snapshot.json
