@@ -18,6 +18,15 @@ from utils.state_manager import StateManager
 from clients.backend_client import BackendClient
 from config.insightvm_config import load_backend_settings, load_general_settings
 
+INSIGHTVM_BANNER = r"""
+  ___           _       _     _   __     ___  __
+ |_ _|_ __  ___(_) __ _| |__ | |_/ /    / / |/ /
+  | || '_ \/ __| |/ _` | '_ \| __| |   / /| ' /
+  | || | | \__ \ | (_| | | | | |_| |  / / | . \
+ |___|_| |_|___/_|\__, |_| |_|\__|_| /_/  |_|\_\
+                  |___/
+"""
+
 
 def setup_logging(level: str, log_file: Optional[str]) -> None:
     lvl = getattr(logging, level.upper(), logging.INFO)
@@ -71,6 +80,8 @@ def main() -> None:
     args = build_parser().parse_args()
     setup_logging(args.log_level, args.log_file)
     log = logging.getLogger("main")
+    log.info("Starting InsightVM Real-time Agent...")
+    log.info("\n%s", INSIGHTVM_BANNER)
     
     while True:
         execute_run(args, log)

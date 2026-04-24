@@ -1,8 +1,6 @@
-python-dotenv==1.0.1
-requests==2.32.3
-python-gvm==26.9.0
-defusedxml==0.7.1
-aiohttp==3.10.11
-opensearch-py==2.8.0
-pydantic==2.9.2
-loguru==0.7.2
+-r wazuh_integration/requirements.txt
+-r zabix_integration/requirements.txt
+-r openVAS_integration/requirements.txt
+-r insightVM_integration/requirements.txt
+-r uptimekuma_integration/requirements.txt
+-r nessus_integration/requirements.txt

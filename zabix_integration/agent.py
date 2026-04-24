@@ -11,6 +11,15 @@ from zbx_api import ZabbixClient
 from summarizer import summarize
 from deliver import deliver
 
+ZABBIX_BANNER = r"""
+  ______       _     _     _
+ |__  / | __ _| |__ | |__ (_)_  __
+   / /| |/ _` | '_ \| '_ \| \ \/ /
+  / /_| | (_| | |_) | |_) | |>  <
+ /____|_|\__,_|_.__/|_.__/|_/_/\_\
+"""
+
+
 def unix_now() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
@@ -44,6 +53,7 @@ def compute_time_from(state: Dict[str, Any], hours_fallback: int) -> Tuple[int, 
 
 def main():
     print("[INFO] Starting Zabbix Real-time Agent...")
+    print(ZABBIX_BANNER)
     cfg = load_config()
     zbx = ZabbixClient(
         cfg.api_url,

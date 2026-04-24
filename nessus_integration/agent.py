@@ -12,6 +12,14 @@ from config import load_config
 from deliver import deliver, write_json
 from summarizer import build_findings, build_report, build_snapshot_signature
 
+NESSUS_BANNER = r"""
+  _   _                             
+ | \ | | ___  ___ ___ _   _ ___     
+ |  \| |/ _ \/ __/ __| | | / __|    
+ | |\  |  __/\__ \__ \ |_| \__ \    
+ |_| \_|\___||___/___/\__,_|___/    
+"""
+
 
 def _initial_state() -> Dict[str, Any]:
     return {
@@ -136,6 +144,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    print("[INFO] Starting Nessus Real-time Agent...")
+    print(NESSUS_BANNER)
     cfg = load_config()
     collector = NessusCollector(cfg)
     state = load_state(cfg.state_path)

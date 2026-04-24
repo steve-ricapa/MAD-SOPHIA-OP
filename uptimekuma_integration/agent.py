@@ -12,6 +12,15 @@ from config import load_config
 from deliver import deliver, write_json
 from summarizer import build_findings, build_report, build_status_signature
 
+UPTIMEKUMA_BANNER = r"""
+  _   _       _   _                 _  __
+ | | | |_ __ | |_(_)_ __ ___   ___ | |/ /_   _ _ __ ___   __ _
+ | | | | '_ \| __| | '_ ` _ \ / _ \| ' /| | | | '_ ` _ \ / _` |
+ | |_| | |_) | |_| | | | | | |  __/| . \| |_| | | | | | | (_| |
+  \___/| .__/ \__|_|_| |_| |_|\___||_|\_\\__,_|_| |_| |_|\__,_|
+       |_|
+"""
+
 
 def load_state(path: Path) -> Dict[str, Any]:
     if not path.exists():
@@ -123,6 +132,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    print("[INFO] Starting Uptime Kuma Real-time Agent...")
+    print(UPTIMEKUMA_BANNER)
     cfg = load_config()
     collector = UptimeKumaCollector(cfg)
     state = load_state(cfg.state_path)
