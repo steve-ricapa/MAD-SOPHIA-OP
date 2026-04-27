@@ -421,11 +421,23 @@ def main() -> None:
     available = [agent.name for agent in AGENTS]
     selected_names = parse_agents(args.agents, available)
 
-    selected_specs = [agent for agent in AGENTS if agent.name in selected_names]
-    if not selected_specs:
+    requested_specs = [agent for agent in AGENTS if agent.name in selected_names]
+    if not requested_specs:
         raise SystemExit("No agents selected")
 
-    log(f"Selected agents: {', '.join(selected_names)}")
+    selected_specs: list[AgentSpec] = []
+    for spec in requested_specs:
+        toggle_key = f"MAD_HAS_{spec.name.upper()}"
+        is_enabled = parse_bool(base_env.get(toggle_key), default=True)
+        if is_enabled:
+            selected_specs.append(spec)
+        else:
+            log(f"{spec.name} disabled by {toggle_key}=false")
+
+    if not selected_specs:
+        raise SystemExit("No agents enabled after applying MAD_HAS_* flags")
+
+    log(f"Selected agents: {', '.join(spec.name for spec in selected_specs)}")
     log(f"Restart on failure: {restart_on_failure}")
 
     action = resolve_startup_action(menu_enabled=menu_enabled, default_option=args.startup_menu_default_option)
