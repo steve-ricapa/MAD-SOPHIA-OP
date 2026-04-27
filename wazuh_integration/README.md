@@ -11,6 +11,8 @@ Conector incremental para extraer alertas desde Wazuh, normalizarlas y enviarlas
   - tabla de IDs procesados en SQLite (`processed_alerts`).
 - Si el backend falla, guarda el payload fallido para reintento/manual review.
 - Reintenta automaticamente payloads fallidos cada `RETRY_FAILED_INTERVAL_SECONDS`.
+- Al iniciar, muestra un menu de prechecks de integracion y reporta cuantos tests pasaron.
+- Si detecta fallas no reintentables (ej. `api_key` faltante), aplica cooldown para no inflar la cola.
 - Envía payloads al backend (`TXDXAI_INGEST_URL`).
 - Guarda evidencia local de cada ciclo para auditoria y analisis.
 
@@ -43,11 +45,13 @@ wazuh_integration/
 - Backend: `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_WAZUH` (fallback: `TXDXAI_API_KEY`)
 - Bucle: `POLL_INTERVAL_ALERTS=30`, `POLL_INTERVAL_AGENTS=60`
 - Reintentos: `RETRY_FAILED_INTERVAL_SECONDS=30`
+- Backoff no reintentable: `NON_RETRYABLE_BACKOFF_SECONDS=300`
 - Filtro: `MIN_RULE_LEVEL=7`
 - Estado: `CHECKPOINT_FILE=state/agent_state.db`
 - Evidencias: `ARTIFACTS_DIR=artifacts`
 - Heartbeat opcional: `SEND_HEARTBEAT=false`
 - Seguridad TLS: `WAZUH_API_VERIFY_TLS`, `WAZUH_INDEXER_VERIFY_TLS`
+- Menu de arranque: `STARTUP_MENU_ENABLED`, `STARTUP_MENU_DEFAULT_OPTION`, `STARTUP_REQUIRE_ALL_TESTS`
 
 ## Perfiles por cliente
 
