@@ -6,7 +6,7 @@
   },
   "insightvm": {
     "assets": {
-      "error": "HTTPSConnectionPool(host='10.208.232.44', port=3780): Max retries exceeded with url: /api/3/assets?page=0&size=200 (Caused by ConnectTimeoutError(<HTTPSConnection(host='10.208.232.44', port=3780) at 0x19605062210>, 'Connection to 10.208.232.44 timed out. (connect timeout=30)'))"
+      "error": "HTTPSConnectionPool(host='10.208.232.44', port=3780): Max retries exceeded with url: /api/3/assets?page=0&size=200 (Caused by ConnectTimeoutError(<HTTPSConnection(host='10.208.232.44', port=3780) at 0x19605061450>, 'Connection to 10.208.232.44 timed out. (connect timeout=30)'))"
     },
     "vulnerabilities": {
       "error": "'resources'"

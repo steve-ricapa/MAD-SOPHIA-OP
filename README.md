@@ -114,10 +114,24 @@ docker run -d --name mad_all --env-file .env mad-sophia-op:latest
 Notas:
 - El `Dockerfile` ahora usa `AGENT_PATH=app.py` por defecto.
 - `app.py` inicia internamente: `wazuh`, `zabbix`, `openvas`, `insightvm`, `uptimekuma`, `nessus`.
+- Al iniciar, `app.py` muestra un menu global con 3 opciones:
+  - ejecutar tests y continuar (recomendado),
+  - ejecutar tests y salir,
+  - omitir tests y continuar.
+- El resumen final muestra cuantos tests pasaron sobre el total.
 - Si quieres correr solo algunos agentes en modo interno:
 
 ```bash
 docker run -d --name mad_partial --env-file .env -e MAD_AGENTS=wazuh,zabbix,openvas mad-sophia-op:latest
+```
+
+Variables utiles del menu global:
+
+```bash
+MAD_STARTUP_MENU_ENABLED=true
+MAD_STARTUP_MENU_DEFAULT_OPTION=1
+MAD_STARTUP_REQUIRE_ALL_TESTS=true
+MAD_STARTUP_TEST_TIMEOUT_SECONDS=3
 ```
 
 - Si necesitas volver al modo de un solo agente:
