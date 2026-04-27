@@ -1,6 +1,10 @@
 # MAD-SOPHIA-OP
 
-Plataforma de integraciones de seguridad/monitoreo ejecutada con Docker Compose usando una sola imagen compartida.
+Plataforma de integraciones de seguridad/monitoreo con una sola imagen compartida.
+
+Soporta dos modos:
+- `docker compose`: un contenedor por integracion.
+- `app.py` orquestador: un solo contenedor/proceso padre que levanta todas las integraciones internamente.
 
 ## Indice
 
@@ -11,17 +15,19 @@ Plataforma de integraciones de seguridad/monitoreo ejecutada con Docker Compose 
 5. [Modelo de entorno-env](#modelo-de-entorno-env)
 6. [Configuracion inicial](#configuracion-inicial)
 7. [Despliegue](#despliegue)
-8. [Operacion diaria](#operacion-diaria)
-9. [Lapsos de ejecucion](#lapsos-de-ejecucion)
-10. [Modos y variables sensibles](#modos-y-variables-sensibles)
-11. [Troubleshooting](#troubleshooting)
-12. [Buenas practicas](#buenas-practicas)
-13. [Documentacion relacionada](#documentacion-relacionada)
+8. [Arranque Interno 1 Comando](#arranque-interno-1-comando)
+9. [Operacion diaria](#operacion-diaria)
+10. [Lapsos de ejecucion](#lapsos-de-ejecucion)
+11. [Modos y variables sensibles](#modos-y-variables-sensibles)
+12. [Troubleshooting](#troubleshooting)
+13. [Buenas practicas](#buenas-practicas)
+14. [Documentacion relacionada](#documentacion-relacionada)
 
 ## Arquitectura
 
 - Una sola imagen Docker: `mad-sophia-op:latest`.
-- Seis contenedores (un proceso por integracion) reutilizando esa imagen.
+- Modo A: seis contenedores (un proceso por integracion) con Compose.
+- Modo B: un contenedor con `app.py` levantando todos los agentes internamente.
 - Un `.env` general en raiz.
 - Variables prefijadas en Compose para evitar colisiones.
 
@@ -94,6 +100,30 @@ Build + levantar todo:
 
 ```bash
 docker compose up -d --build
+```
+
+## Arranque Interno 1 Comando
+
+Si quieres que todo MAD se levante desde un solo comando y dentro de un solo contenedor:
+
+```bash
+docker build -t mad-sophia-op:latest .
+docker run -d --name mad_all --env-file .env mad-sophia-op:latest
+```
+
+Notas:
+- El `Dockerfile` ahora usa `AGENT_PATH=app.py` por defecto.
+- `app.py` inicia internamente: `wazuh`, `zabbix`, `openvas`, `insightvm`, `uptimekuma`, `nessus`.
+- Si quieres correr solo algunos agentes en modo interno:
+
+```bash
+docker run -d --name mad_partial --env-file .env -e MAD_AGENTS=wazuh,zabbix,openvas mad-sophia-op:latest
+```
+
+- Si necesitas volver al modo de un solo agente:
+
+```bash
+docker run -d --name mad_wazuh_only --env-file .env -e AGENT_PATH=wazuh_integration/main.py mad-sophia-op:latest
 ```
 
 Estado:
