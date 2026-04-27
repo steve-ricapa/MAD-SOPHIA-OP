@@ -46,6 +46,14 @@ class IndexerClient:
             logger.error(f"Error querying Indexer: {e}")
             return []
 
+    async def ping(self):
+        """Checks basic connectivity/authentication against Wazuh Indexer."""
+        try:
+            return bool(await self.client.ping())
+        except Exception as e:
+            logger.error(f"Error pinging Indexer: {e}")
+            return False
+
     async def get_alerts_page(self, start_timestamp, end_timestamp=None, size=1000, search_after=None):
         """Fetches one sorted page of alerts for a time range."""
         timestamp_range = {"gte": start_timestamp}
