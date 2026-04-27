@@ -114,6 +114,8 @@ docker run -d --name mad_all --env-file .env mad-sophia-op:latest
 Notas:
 - El `Dockerfile` ahora usa `AGENT_PATH=app.py` por defecto.
 - `app.py` inicia internamente: `wazuh`, `zabbix`, `openvas`, `insightvm`, `uptimekuma`, `nessus`.
+- Puedes marcar existencia por cliente con flags `MAD_HAS_*` en `.env`.
+  Solo las integraciones en `true` se testean y se levantan.
 - Al iniciar, `app.py` muestra un menu global con 3 opciones:
   - ejecutar tests y continuar (recomendado),
   - ejecutar tests y salir,
@@ -128,6 +130,12 @@ docker run -d --name mad_partial --env-file .env -e MAD_AGENTS=wazuh,zabbix,open
 Variables utiles del menu global:
 
 ```bash
+MAD_HAS_WAZUH=true
+MAD_HAS_ZABBIX=true
+MAD_HAS_OPENVAS=true
+MAD_HAS_INSIGHTVM=true
+MAD_HAS_UPTIMEKUMA=true
+MAD_HAS_NESSUS=true
 MAD_STARTUP_MENU_ENABLED=true
 MAD_STARTUP_MENU_DEFAULT_OPTION=1
 MAD_STARTUP_REQUIRE_ALL_TESTS=true
