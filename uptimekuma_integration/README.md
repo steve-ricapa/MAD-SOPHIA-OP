@@ -12,7 +12,7 @@ Agente Python para consumir telemetria de Uptime Kuma desde `/metrics`, converti
 
 ## Variables de entorno
 
-- `UPTIME_KUMA_URL` (default: `http://127.0.0.1:3001`)
+- `UPTIME_KUMA_URL` (required, sin default local)
 - `UPTIME_KUMA_METRICS_PATH` (default: `/metrics`)
 - `UPTIME_KUMA_DB_PATH` (opcional, ejemplo: `C:\Users\diego\uptime-kuma\data\kuma.db`) para enriquecer con config, ultimo heartbeat, TLS y stats.
 - `UPTIME_KUMA_USERNAME`, `UPTIME_KUMA_PASSWORD` (auth basica)

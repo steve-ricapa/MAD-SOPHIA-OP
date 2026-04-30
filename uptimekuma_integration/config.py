@@ -63,10 +63,10 @@ def load_config() -> Config:
     load_dotenv()
     base_dir = Path(__file__).resolve().parent
 
-    uptime_kuma_url = os.getenv("UPTIME_KUMA_URL", "http://127.0.0.1:3001").strip()
+    uptime_kuma_url = os.getenv("UPTIME_KUMA_URL", "").strip()
     metrics_path = os.getenv("UPTIME_KUMA_METRICS_PATH", "/metrics").strip()
 
-    output_mode = os.getenv("OUTPUT_MODE", "stdout").strip().lower()
+    output_mode = (os.getenv("UPTIME_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "stdout").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
     company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
     api_key = (
@@ -74,25 +74,25 @@ def load_config() -> Config:
         or os.getenv("TXDXAI_API_KEY")
         or os.getenv("API_KEY", "local_test_key")
     ).strip()
-    scanner_type = os.getenv("SCANNER_TYPE", "uptimekuma").strip().lower()
-    event_type = os.getenv("EVENT_TYPE", "vuln_scan_report").strip()
+    scanner_type = (os.getenv("UPTIME_SCANNER_TYPE") or os.getenv("SCANNER_TYPE", "uptimekuma")).strip().lower()
+    event_type = (os.getenv("UPTIME_EVENT_TYPE") or os.getenv("EVENT_TYPE", "vuln_scan_report")).strip()
 
-    poll_interval = int(os.getenv("POLL_INTERVAL_SECONDS", "15"))
-    request_timeout = int(os.getenv("REQUEST_TIMEOUT", "30"))
-    verify_ssl = _env_bool("VERIFY_SSL", True)
-    http_retries = int(os.getenv("HTTP_RETRIES", "3"))
-    backoff_seconds = int(os.getenv("BACKOFF_SECONDS", "5"))
-    force_send_every_cycles = int(os.getenv("FORCE_SEND_EVERY_CYCLES", "6"))
-    include_all_monitors = _env_bool("INCLUDE_ALL_MONITORS", False)
-    include_extended_fields = _env_bool("INCLUDE_EXTENDED_FIELDS", False)
-    queue_enabled = _env_bool("QUEUE_ENABLED", True)
-    queue_flush_max = int(os.getenv("QUEUE_FLUSH_MAX", "20"))
+    poll_interval = int(os.getenv("UPTIME_POLL_INTERVAL_SECONDS") or os.getenv("POLL_INTERVAL_SECONDS", "15"))
+    request_timeout = int(os.getenv("UPTIME_REQUEST_TIMEOUT") or os.getenv("REQUEST_TIMEOUT", "30"))
+    verify_ssl = _env_bool("UPTIME_VERIFY_SSL", _env_bool("VERIFY_SSL", True))
+    http_retries = int(os.getenv("UPTIME_HTTP_RETRIES") or os.getenv("HTTP_RETRIES", "3"))
+    backoff_seconds = int(os.getenv("UPTIME_BACKOFF_SECONDS") or os.getenv("BACKOFF_SECONDS", "5"))
+    force_send_every_cycles = int(os.getenv("UPTIME_FORCE_SEND_EVERY_CYCLES") or os.getenv("FORCE_SEND_EVERY_CYCLES", "6"))
+    include_all_monitors = _env_bool("UPTIME_INCLUDE_ALL_MONITORS", _env_bool("INCLUDE_ALL_MONITORS", False))
+    include_extended_fields = _env_bool("UPTIME_INCLUDE_EXTENDED_FIELDS", _env_bool("INCLUDE_EXTENDED_FIELDS", False))
+    queue_enabled = _env_bool("UPTIME_QUEUE_ENABLED", _env_bool("QUEUE_ENABLED", True))
+    queue_flush_max = int(os.getenv("UPTIME_QUEUE_FLUSH_MAX") or os.getenv("QUEUE_FLUSH_MAX", "20"))
 
     state_raw = os.getenv("STATE_FILE", "state.json")
     debug_report_raw = os.getenv("DEBUG_REPORT_PATH", "debug_report.json")
     last_payload_raw = os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
-    raw_snapshot_raw = os.getenv("RAW_SNAPSHOT_PATH", "raw_monitors_snapshot.json")
-    queue_dir_raw = os.getenv("QUEUE_DIR", "queue")
+    raw_snapshot_raw = os.getenv("UPTIME_RAW_SNAPSHOT_PATH") or os.getenv("RAW_SNAPSHOT_PATH", "raw_monitors_snapshot.json")
+    queue_dir_raw = os.getenv("UPTIME_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
 
     kuma_user = os.getenv("UPTIME_KUMA_USERNAME")
     kuma_password = os.getenv("UPTIME_KUMA_PASSWORD")
@@ -112,15 +112,11 @@ def load_config() -> Config:
         if not kuma_db_candidate.is_absolute():
             kuma_db_candidate = (base_dir / kuma_db_candidate).resolve()
         kuma_db_path = kuma_db_candidate
-    else:
-        default_db = Path.home() / "uptime-kuma" / "data" / "kuma.db"
-        if default_db.exists():
-            kuma_db_path = default_db
 
     if output_mode not in {"stdout", "webhook", "all"}:
-        raise SystemExit("OUTPUT_MODE debe ser stdout, webhook o all.")
+        raise SystemExit("UPTIME_OUTPUT_MODE/OUTPUT_MODE debe ser stdout, webhook o all.")
     if output_mode in {"webhook", "all"} and not webhook_url:
-        raise SystemExit("TXDXAI_INGEST_URL es requerido cuando OUTPUT_MODE=webhook/all.")
+        raise SystemExit("TXDXAI_INGEST_URL es requerido cuando UPTIME_OUTPUT_MODE/OUTPUT_MODE=webhook/all.")
     if poll_interval <= 0:
         raise SystemExit("POLL_INTERVAL_SECONDS debe ser mayor que 0.")
     if force_send_every_cycles < 1:

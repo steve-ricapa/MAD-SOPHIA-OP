@@ -50,10 +50,10 @@ def load_config() -> Config:
     api_url = os.getenv("ZABBIX_API_URL", "").strip()
     user = os.getenv("ZABBIX_USER", "").strip()
     password = os.getenv("ZABBIX_PASS", "").strip()
-    hours = int(os.getenv("HOURS", "24"))
+    hours = int(os.getenv("ZABBIX_HOURS") or os.getenv("HOURS", "24"))
     
     # Backend TxDxAI (Prioridad a TXDXAI_*)
-    output_mode = os.getenv("OUTPUT_MODE", "stdout").strip().lower()
+    output_mode = (os.getenv("ZABBIX_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "stdout").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
     company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
     api_key = (
@@ -62,18 +62,18 @@ def load_config() -> Config:
         or os.getenv("API_KEY", "local_test_key")
     )
     
-    state_raw = os.getenv("STATE_FILE") or os.getenv("STATE_PATH", "state.json")
-    interval = int(os.getenv("INTERVAL", "60"))
-    verify_ssl = _env_bool("VERIFY_SSL", True)
-    request_timeout = int(os.getenv("REQUEST_TIMEOUT", "30"))
-    http_retries = int(os.getenv("HTTP_RETRIES", "3"))
-    backoff_seconds = int(os.getenv("BACKOFF_SECONDS", "5"))
-    problems_limit = int(os.getenv("PROBLEMS_LIMIT", "2000"))
-    triggers_limit = int(os.getenv("TRIGGERS_LIMIT", "5000"))
-    events_limit = int(os.getenv("EVENTS_LIMIT", "2000"))
-    debug_report_raw = os.getenv("DEBUG_REPORT_PATH", "debug_report.json")
-    last_payload_raw = os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
-    include_events = _env_bool("INCLUDE_EVENTS", False)
+    state_raw = os.getenv("ZABBIX_STATE_FILE") or os.getenv("STATE_FILE") or os.getenv("STATE_PATH", "state.json")
+    interval = int(os.getenv("ZABBIX_INTERVAL") or os.getenv("INTERVAL", "60"))
+    verify_ssl = _env_bool("ZABBIX_VERIFY_SSL", _env_bool("VERIFY_SSL", True))
+    request_timeout = int(os.getenv("ZABBIX_REQUEST_TIMEOUT") or os.getenv("REQUEST_TIMEOUT", "30"))
+    http_retries = int(os.getenv("ZABBIX_HTTP_RETRIES") or os.getenv("HTTP_RETRIES", "3"))
+    backoff_seconds = int(os.getenv("ZABBIX_BACKOFF_SECONDS") or os.getenv("BACKOFF_SECONDS", "5"))
+    problems_limit = int(os.getenv("ZABBIX_PROBLEMS_LIMIT") or os.getenv("PROBLEMS_LIMIT", "2000"))
+    triggers_limit = int(os.getenv("ZABBIX_TRIGGERS_LIMIT") or os.getenv("TRIGGERS_LIMIT", "5000"))
+    events_limit = int(os.getenv("ZABBIX_EVENTS_LIMIT") or os.getenv("EVENTS_LIMIT", "2000"))
+    debug_report_raw = os.getenv("ZABBIX_DEBUG_REPORT_PATH") or os.getenv("DEBUG_REPORT_PATH", "debug_report.json")
+    last_payload_raw = os.getenv("ZABBIX_LAST_PAYLOAD_PATH") or os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
+    include_events = _env_bool("ZABBIX_INCLUDE_EVENTS", _env_bool("INCLUDE_EVENTS", False))
 
     state_path = _resolve_path(base_dir, state_raw, "state.json")
     debug_report_path = _resolve_path(base_dir, debug_report_raw, "debug_report.json")
@@ -84,7 +84,7 @@ def load_config() -> Config:
     if not user or not password:
         raise SystemExit("Faltan ZABBIX_USER o ZABBIX_PASS.")
     if output_mode not in {"stdout", "webhook", "all"}:
-        raise SystemExit("OUTPUT_MODE debe ser stdout, webhook o all.")
+        raise SystemExit("ZABBIX_OUTPUT_MODE/OUTPUT_MODE debe ser stdout, webhook o all.")
     
     return Config(
         base_dir=base_dir,

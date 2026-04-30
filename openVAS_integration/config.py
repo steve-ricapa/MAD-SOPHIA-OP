@@ -28,18 +28,18 @@ def _env_bool(name: str, default: bool) -> bool:
     return default
 
 
-OUTPUT_MODE = (_env("OUTPUT_MODE", "console") or "console").strip().lower()
-COLLECTOR   = (_env("COLLECTOR", "simulated") or "simulated").strip().lower()
+OUTPUT_MODE = (_env("OPENVAS_OUTPUT_MODE", _env("OUTPUT_MODE", "console")) or "console").strip().lower()
+COLLECTOR   = (_env("OPENVAS_COLLECTOR", _env("COLLECTOR", "simulated")) or "simulated").strip().lower()
 
-POLL_SECONDS = _env_int("POLL_SECONDS", 10)
-STATE_PATH   = _env("STATE_PATH", "./state.json") or "./state.json"
+POLL_SECONDS = _env_int("OPENVAS_POLL_SECONDS", _env_int("POLL_SECONDS", 10))
+STATE_PATH   = _env("OPENVAS_STATE_PATH", _env("STATE_PATH", "./state.json")) or "./state.json"
 META_MAX_KB  = _env_int("META_MAX_KB", 256)
 
 TXDXAI_INGEST_URL = _env("TXDXAI_INGEST_URL", "console://stdout") or "console://stdout"
 TXDXAI_COMPANY_ID = _env_int("TXDXAI_COMPANY_ID", 0)
 TXDXAI_API_KEY    = _env("TXDXAI_API_KEY_OPENVAS", _env("TXDXAI_API_KEY", _env("API_KEY", ""))) or ""
 
-GVM_HOST = _env("GVM_HOST", "127.0.0.1") or "127.0.0.1"
+GVM_HOST = _env("GVM_HOST", "") or ""
 GVM_PORT = _env_int("GVM_PORT", 9390)
 GVM_USERNAME = _env("GVM_USERNAME", _env("GVM_USER", "admin")) or "admin"
 GVM_PASSWORD = _env("GVM_PASSWORD", _env("GVM_PASS", "")) or ""
@@ -51,13 +51,13 @@ GVM_TLS_CERTFILE = _env("GVM_TLS_CERTFILE", "") or ""
 GVM_TLS_KEYFILE  = _env("GVM_TLS_KEYFILE", "") or ""
 GVM_TIMEOUT = _env_int("GVM_TIMEOUT", 30)
 
-DETAIL_LEVEL = (_env("DETAIL_LEVEL", "findings") or "findings").strip().lower()
-TOP_N = _env_int("TOP_N", 50)
-REPORT_MAX_KB = _env_int("REPORT_MAX_KB", 4096)
-FINDING_TEXT_MAX = _env_int("FINDING_TEXT_MAX", 300)
+DETAIL_LEVEL = (_env("OPENVAS_DETAIL_LEVEL", _env("DETAIL_LEVEL", "findings")) or "findings").strip().lower()
+TOP_N = _env_int("OPENVAS_TOP_N", _env_int("TOP_N", 50))
+REPORT_MAX_KB = _env_int("OPENVAS_REPORT_MAX_KB", _env_int("REPORT_MAX_KB", 4096))
+FINDING_TEXT_MAX = _env_int("OPENVAS_FINDING_TEXT_MAX", _env_int("FINDING_TEXT_MAX", 300))
 
-DEBUG = _env_bool("DEBUG", False)
-MAX_ERROR_REPEAT = _env_int("MAX_ERROR_REPEAT", 3)
+DEBUG = _env_bool("OPENVAS_DEBUG", _env_bool("DEBUG", False))
+MAX_ERROR_REPEAT = _env_int("OPENVAS_MAX_ERROR_REPEAT", _env_int("MAX_ERROR_REPEAT", 3))
 
 # Estado (para evitar crecimiento infinito)
 STATE_TTL_DAYS = _env_int("STATE_TTL_DAYS", 30)

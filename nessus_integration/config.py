@@ -78,7 +78,7 @@ def load_config() -> Config:
     nessus_secret_key = os.getenv("NESSUS_SECRET_KEY", "").strip()
     verify_ssl = _env_bool("NESSUS_VERIFY_SSL", False)
 
-    output_mode = os.getenv("OUTPUT_MODE", "stdout").strip().lower()
+    output_mode = (os.getenv("NESSUS_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "stdout").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
     company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
     api_key = (
@@ -86,25 +86,25 @@ def load_config() -> Config:
         or os.getenv("TXDXAI_API_KEY")
         or os.getenv("API_KEY", "local_test_key")
     ).strip()
-    scanner_type = os.getenv("SCANNER_TYPE", "nessus").strip().lower()
-    event_type = os.getenv("EVENT_TYPE", "vuln_scan_report").strip()
+    scanner_type = (os.getenv("NESSUS_SCANNER_TYPE") or os.getenv("SCANNER_TYPE", "nessus")).strip().lower()
+    event_type = (os.getenv("NESSUS_EVENT_TYPE") or os.getenv("EVENT_TYPE", "vuln_scan_report")).strip()
 
-    poll_interval = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
-    request_timeout = int(os.getenv("REQUEST_TIMEOUT", "30"))
-    http_retries = int(os.getenv("HTTP_RETRIES", "3"))
-    backoff_seconds = int(os.getenv("BACKOFF_SECONDS", "5"))
+    poll_interval = int(os.getenv("NESSUS_POLL_INTERVAL_SECONDS") or os.getenv("POLL_INTERVAL_SECONDS", "60"))
+    request_timeout = int(os.getenv("NESSUS_REQUEST_TIMEOUT") or os.getenv("REQUEST_TIMEOUT", "30"))
+    http_retries = int(os.getenv("NESSUS_HTTP_RETRIES") or os.getenv("HTTP_RETRIES", "3"))
+    backoff_seconds = int(os.getenv("NESSUS_BACKOFF_SECONDS") or os.getenv("BACKOFF_SECONDS", "5"))
     max_scans_per_cycle = int(os.getenv("NESSUS_MAX_SCANS_PER_CYCLE", "5"))
-    force_send_every_cycles = int(os.getenv("FORCE_SEND_EVERY_CYCLES", "10"))
-    include_all_findings = _env_bool("INCLUDE_ALL_FINDINGS", True)
+    force_send_every_cycles = int(os.getenv("NESSUS_FORCE_SEND_EVERY_CYCLES") or os.getenv("FORCE_SEND_EVERY_CYCLES", "10"))
+    include_all_findings = _env_bool("NESSUS_INCLUDE_ALL_FINDINGS", _env_bool("INCLUDE_ALL_FINDINGS", True))
 
-    queue_enabled = _env_bool("QUEUE_ENABLED", True)
-    queue_flush_max = int(os.getenv("QUEUE_FLUSH_MAX", "20"))
+    queue_enabled = _env_bool("NESSUS_QUEUE_ENABLED", _env_bool("QUEUE_ENABLED", True))
+    queue_flush_max = int(os.getenv("NESSUS_QUEUE_FLUSH_MAX") or os.getenv("QUEUE_FLUSH_MAX", "20"))
 
     state_raw = os.getenv("STATE_FILE", "state.json")
     debug_report_raw = os.getenv("DEBUG_REPORT_PATH", "debug_report.json")
     last_payload_raw = os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
-    raw_snapshot_raw = os.getenv("RAW_SNAPSHOT_PATH", "raw_scans_snapshot.json")
-    queue_dir_raw = os.getenv("QUEUE_DIR", "queue")
+    raw_snapshot_raw = os.getenv("NESSUS_RAW_SNAPSHOT_PATH") or os.getenv("RAW_SNAPSHOT_PATH", "raw_scans_snapshot.json")
+    queue_dir_raw = os.getenv("NESSUS_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
 
     scan_ids_filter = _parse_scan_ids(os.getenv("NESSUS_SCAN_IDS"))
     folder_raw = os.getenv("NESSUS_FOLDER_ID", "").strip()
@@ -121,9 +121,9 @@ def load_config() -> Config:
     if not nessus_access_key or not nessus_secret_key:
         raise SystemExit("NESSUS_ACCESS_KEY y NESSUS_SECRET_KEY son requeridos.")
     if output_mode not in {"stdout", "webhook", "all"}:
-        raise SystemExit("OUTPUT_MODE debe ser stdout, webhook o all.")
+        raise SystemExit("NESSUS_OUTPUT_MODE/OUTPUT_MODE debe ser stdout, webhook o all.")
     if output_mode in {"webhook", "all"} and not webhook_url:
-        raise SystemExit("TXDXAI_INGEST_URL es requerido cuando OUTPUT_MODE=webhook/all.")
+        raise SystemExit("TXDXAI_INGEST_URL es requerido cuando NESSUS_OUTPUT_MODE/OUTPUT_MODE=webhook/all.")
     if poll_interval <= 0:
         raise SystemExit("POLL_INTERVAL_SECONDS debe ser > 0.")
     if http_retries < 1:

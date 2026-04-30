@@ -67,5 +67,5 @@ Estos valores bajan consumo sin perder visibilidad:
 ## Si usas un .env general unico
 
 - Evita repetir nombres globales como `POLL_INTERVAL_SECONDS` para distintos agentes.
-- Recomendado: prefijos por agente en el `.env` general (`WAZUH_*`, `NESSUS_*`, etc.) y mapearlos en `docker-compose`.
+- Recomendado: prefijos por agente en el `.env` general (`WAZUH_*`, `NESSUS_*`, etc.) y usarlos directamente en cada integracion.
 

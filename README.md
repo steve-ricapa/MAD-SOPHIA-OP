@@ -1,37 +1,15 @@
 # MAD-SOPHIA-OP
 
-Plataforma de integraciones de seguridad/monitoreo con una sola imagen compartida.
+Plataforma de integraciones de seguridad y monitoreo empaquetada en una sola imagen Docker.
 
-Soporta dos modos:
-- `docker compose`: un contenedor por integracion.
-- `app.py` orquestador: un solo contenedor/proceso padre que levanta todas las integraciones internamente.
+## Estrategia de ejecucion
 
-## Indice
+- Unico servicio.
+- Sin orquestador adicional.
+- Configuracion por entorno en runtime con `--env-file .env`.
+- Imagen agnostica: no contiene secretos ni `.env`.
 
-1. [Arquitectura](#arquitectura)
-2. [Servicios](#servicios)
-3. [Requisitos](#requisitos)
-4. [Estructura del repositorio](#estructura-del-repositorio)
-5. [Modelo de entorno-env](#modelo-de-entorno-env)
-6. [Configuracion inicial](#configuracion-inicial)
-7. [Despliegue](#despliegue)
-8. [Arranque Interno 1 Comando](#arranque-interno-1-comando)
-9. [Operacion diaria](#operacion-diaria)
-10. [Lapsos de ejecucion](#lapsos-de-ejecucion)
-11. [Modos y variables sensibles](#modos-y-variables-sensibles)
-12. [Troubleshooting](#troubleshooting)
-13. [Buenas practicas](#buenas-practicas)
-14. [Documentacion relacionada](#documentacion-relacionada)
-
-## Arquitectura
-
-- Una sola imagen Docker: `mad-sophia-op:latest`.
-- Modo A: seis contenedores (un proceso por integracion) con Compose.
-- Modo B: un contenedor con `app.py` levantando todos los agentes internamente.
-- Un `.env` general en raiz.
-- Variables prefijadas en Compose para evitar colisiones.
-
-## Servicios
+## Integraciones incluidas
 
 - `wazuh`
 - `zabbix`
@@ -40,243 +18,55 @@ Soporta dos modos:
 - `uptimekuma`
 - `nessus`
 
-Si un servicio falla en runtime, los demas siguen activos.
-
 ## Requisitos
 
-- Docker Engine + Docker Compose plugin (`docker compose`).
-- Conectividad de red hacia:
-  - Wazuh API e Indexer.
-  - Zabbix API.
-  - OpenVAS/GVMD.
-  - InsightVM API.
-  - Uptime Kuma.
-  - Nessus.
-  - Backend `TXDXAI_INGEST_URL`.
+- Docker Engine.
+- Conectividad de red hacia los endpoints de cada integracion.
 
-## Estructura del repositorio
+## Archivos clave
 
-- `Dockerfile`: construye la imagen unica.
-- `docker-compose.yml`: orquesta los 6 servicios.
-- `.env`: configuracion real (no versionada).
-- `.env.example`: plantilla oficial documentada (sin secretos).
-- `GUIA_DOCKER_COMPOSE.md`: operacion y comandos Compose.
-- `GUIA_LAPSOS_AGENTES.md`: defaults y ubicacion de lapsos en codigo.
+- `Dockerfile`: imagen base para todas las integraciones.
+- `.env`: variables locales (no versionado).
+- `.env.example`: plantilla de variables sin secretos.
+- `app.py`: orquestador interno para ejecutar multiples integraciones.
+- `GUIA_LAPSOS_AGENTES.md`: referencia de lapsos/defaults.
 
-## Modelo de entorno (.env)
-
-Hay dos capas de variables:
-
-1. Variables prefijadas para Docker Compose (recomendado):
-- `WAZUH_*`, `ZABBIX_*`, `OPENVAS_*`, `INSIGHTVM_*`, `UPTIME_*`, `NESSUS_*`.
-- Evitan que una variable global pise otra.
-
-2. Variables locales por integracion (modo manual):
-- Ejemplos: `POLL_INTERVAL_SECONDS`, `SCANNER_TYPE`, `OUTPUT_MODE`.
-- Se usan cuando ejecutas un agente sin Compose.
-
-Plantilla base:
+## Build
 
 ```bash
-cp .env.example .env
+docker build -t app .
 ```
 
-## Configuracion inicial
-
-1. Copia `.env.example` a `.env`.
-2. Completa hosts, usuarios, passwords y `TXDXAI_API_KEY_*`.
-3. Ajusta company ID (`TXDXAI_COMPANY_ID`) segun tu tenant.
-4. Define lapsos prefijados para Compose si quieres sobreescribir defaults.
-
-## Despliegue
-
-Validar config renderizada:
+## Run (orquestador completo)
 
 ```bash
-docker compose config
+docker run -d --name mad_all --env-file .env -p 8000:8000 app
 ```
 
-Build + levantar todo:
+## Run (una integracion)
+
+Ejemplo Wazuh:
 
 ```bash
-docker compose up -d --build
+docker run -d --name mad_wazuh --env-file .env -p 8000:8000 -e AGENT_PATH=wazuh_integration/main.py app
 ```
 
-## Arranque Interno 1 Comando
-
-Si quieres que todo MAD se levante desde un solo comando y dentro de un solo contenedor:
+Ejemplo Zabbix:
 
 ```bash
-docker build -t mad-sophia-op:latest .
-docker run -d --name mad_all --env-file .env mad-sophia-op:latest
+docker run -d --name mad_zabbix --env-file .env -e AGENT_PATH=zabix_integration/agent.py app
 ```
 
-Notas:
-- El `Dockerfile` ahora usa `AGENT_PATH=app.py` por defecto.
-- `app.py` inicia internamente: `wazuh`, `zabbix`, `openvas`, `insightvm`, `uptimekuma`, `nessus`.
-- Puedes marcar existencia por cliente con flags `MAD_HAS_*` en `.env`.
-  Solo las integraciones en `true` se testean y se levantan.
-- Al iniciar, `app.py` muestra un menu global con 3 opciones:
-  - ejecutar tests y continuar (recomendado),
-  - ejecutar tests y salir,
-  - omitir tests y continuar.
-- El resumen final muestra cuantos tests pasaron sobre el total.
-- Si quieres correr solo algunos agentes en modo interno:
+## Logs y estado
 
 ```bash
-docker run -d --name mad_partial --env-file .env -e MAD_AGENTS=wazuh,zabbix,openvas mad-sophia-op:latest
-```
-
-Variables utiles del menu global:
-
-```bash
-MAD_HAS_WAZUH=true
-MAD_HAS_ZABBIX=true
-MAD_HAS_OPENVAS=true
-MAD_HAS_INSIGHTVM=true
-MAD_HAS_UPTIMEKUMA=true
-MAD_HAS_NESSUS=true
-MAD_STARTUP_MENU_ENABLED=true
-MAD_STARTUP_MENU_DEFAULT_OPTION=1
-MAD_STARTUP_REQUIRE_ALL_TESTS=true
-MAD_STARTUP_TEST_TIMEOUT_SECONDS=3
-```
-
-- Si necesitas volver al modo de un solo agente:
-
-```bash
-docker run -d --name mad_wazuh_only --env-file .env -e AGENT_PATH=wazuh_integration/main.py mad-sophia-op:latest
-```
-
-Estado:
-
-```bash
-docker compose ps
-docker compose top
-```
-
-Detener stack:
-
-```bash
-docker compose down
-```
-
-## Operacion diaria
-
-Logs de todo el stack:
-
-```bash
-docker compose logs -f -t
-```
-
-Logs por servicio:
-
-```bash
-docker compose logs -f wazuh
-docker compose logs -f zabbix
-docker compose logs -f openvas
-docker compose logs -f insightvm
-docker compose logs -f uptimekuma
-docker compose logs -f nessus
-```
-
-Reiniciar un servicio:
-
-```bash
-docker compose restart <servicio>
-```
-
-Recrear un servicio:
-
-```bash
-docker compose up -d --force-recreate <servicio>
-```
-
-Levantar un subconjunto:
-
-```bash
-docker compose up -d wazuh zabbix insightvm uptimekuma nessus
-```
-
-## Lapsos de ejecucion
-
-Perfil recomendado (balanceado):
-
-- Wazuh: `WAZUH_POLL_INTERVAL_ALERTS=60`, `WAZUH_POLL_INTERVAL_AGENTS=600`
-- Zabbix: `ZABBIX_INTERVAL=180`
-- OpenVAS: `OPENVAS_POLL_SECONDS=600`
-- InsightVM: `INSIGHTVM_INTERVAL_SECONDS=600`
-- Uptime Kuma: `UPTIME_POLL_INTERVAL_SECONDS=120`, `UPTIME_FORCE_SEND_EVERY_CYCLES=15`
-- Nessus: `NESSUS_POLL_INTERVAL_SECONDS=600`, `NESSUS_FORCE_SEND_EVERY_CYCLES=6`
-
-Detalle tecnico completo de defaults y uso en loops:
-- Ver `GUIA_LAPSOS_AGENTES.md`.
-
-## Modos y variables sensibles
-
-OpenVAS:
-
-- Real: `OPENVAS_COLLECTOR=gmp`
-- Simulado: `OPENVAS_COLLECTOR=simulated`
-
-Uptime y Nessus (scanner type):
-
-- Compose: usar `UPTIME_SCANNER_TYPE` y `NESSUS_SCANNER_TYPE`.
-- Manual: usar `SCANNER_TYPE` en cada integracion.
-
-Uptime Kuma auth:
-
-- API Keys habilitadas: usar `UPTIME_KUMA_API_KEY_ID` + `UPTIME_KUMA_API_KEY`.
-- Sin API Keys: usar `UPTIME_KUMA_USERNAME` + `UPTIME_KUMA_PASSWORD`.
-
-## Troubleshooting
-
-Servicio caido:
-
-```bash
-docker compose ps
-docker compose logs --tail=300 <servicio>
-docker compose restart <servicio>
-```
-
-Ver env dentro de contenedor:
-
-```bash
-docker compose exec <servicio> sh -lc 'env | sort'
-```
-
-Validar que API key cargo (sin exponer valor):
-
-```bash
-docker compose exec wazuh sh -lc 'echo "LEN=${#TXDXAI_API_KEY_WAZUH}"'
-docker compose exec nessus sh -lc 'echo "LEN=${#TXDXAI_API_KEY_NESSUS}"'
-docker compose exec uptimekuma sh -lc 'echo "LEN=${#TXDXAI_API_KEY_UPTIMEKUMA}"'
-```
-
-Wazuh auth 401:
-
-```bash
-docker compose exec wazuh sh -lc 'curl -sk -u "$WAZUH_API_USER:$WAZUH_API_PASSWORD" "$WAZUH_API_HOST/security/user/authenticate?raw=true"'
-```
-
-Rebuild limpio:
-
-```bash
-docker compose build --no-cache
-docker compose up -d
+docker logs -f mad_all
+docker ps
 ```
 
 ## Buenas practicas
 
 - No subir secretos reales al repo.
-- Mantener `.env` en local y versionar solo `.env.example`.
-- No versionar archivos runtime (`state`, `queue`, `debug_report`, `raw_snapshot`).
-- Rotar credenciales si se exponen accidentalmente.
-
-## Documentacion relacionada
-
-- [Guia Docker Compose](./GUIA_DOCKER_COMPOSE.md)
-- [Guia de Lapsos](./GUIA_LAPSOS_AGENTES.md)
-- [Plantilla de entorno](./.env.example)
-- [Compose](./docker-compose.yml)
-- [Dockerfile](./Dockerfile)
+- Versionar solo `.env.example`.
+- Rotar credenciales si alguna se expuso.
+- Mantener runtime artifacts fuera de git.

@@ -37,7 +37,7 @@ def load_insightvm_settings(
     timeout_override: Optional[int] = None,
     verify_ssl_override: Optional[str] = None,
 ) -> InsightVMSettings:
-    base_url = (os.getenv("INSIGHTVM_BASE_URL") or "https://127.0.0.1:3780/api/3").strip()
+    base_url = (os.getenv("INSIGHTVM_BASE_URL") or "").strip()
     username = (os.getenv("INSIGHTVM_USER") or "").strip()
     password = (os.getenv("INSIGHTVM_PASSWORD") or "").strip()
 
