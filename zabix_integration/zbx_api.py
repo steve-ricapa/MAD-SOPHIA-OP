@@ -27,6 +27,39 @@ class ZabbixClient:
         if not self.verify_ssl:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+    def _candidate_api_urls(self) -> list[str]:
+        raw = (self.api_url or "").strip()
+        if not raw:
+            return []
+
+        base = raw.rstrip("/")
+        candidates = [base]
+
+        if not base.endswith("api_jsonrpc.php"):
+            candidates.append(base + "/api_jsonrpc.php")
+            candidates.append(base + "/zabbix/api_jsonrpc.php")
+
+        if base.startswith("http://"):
+            https_base = "https://" + base[len("http://") :]
+            candidates.append(https_base)
+            if not https_base.endswith("api_jsonrpc.php"):
+                candidates.append(https_base.rstrip("/") + "/api_jsonrpc.php")
+                candidates.append(https_base.rstrip("/") + "/zabbix/api_jsonrpc.php")
+        elif base.startswith("https://"):
+            http_base = "http://" + base[len("https://") :]
+            candidates.append(http_base)
+            if not http_base.endswith("api_jsonrpc.php"):
+                candidates.append(http_base.rstrip("/") + "/api_jsonrpc.php")
+                candidates.append(http_base.rstrip("/") + "/zabbix/api_jsonrpc.php")
+
+        unique: list[str] = []
+        seen = set()
+        for item in candidates:
+            if item not in seen:
+                unique.append(item)
+                seen.add(item)
+        return unique
+
     def login(self):
         try:
             # Intentamos formato Zabbix 7.0+ (username)
@@ -84,6 +117,27 @@ class ZabbixClient:
 
                 return data["result"]
             except (requests.RequestException, ValueError, RuntimeError) as exc:
+                if method == "apiinfo.version":
+                    status = getattr(getattr(exc, "response", None), "status_code", None)
+                    if status == 404:
+                        for candidate in self._candidate_api_urls():
+                            if candidate == self.api_url:
+                                continue
+                            try:
+                                test = self.session.post(
+                                    candidate,
+                                    json=payload,
+                                    headers=headers,
+                                    timeout=self.timeout,
+                                    verify=self.verify_ssl,
+                                )
+                                test.raise_for_status()
+                                data = test.json()
+                                if "result" in data:
+                                    self.api_url = candidate
+                                    return data["result"]
+                            except Exception:
+                                continue
                 last_error = exc
                 if attempt == self.retries:
                     break

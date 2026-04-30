@@ -154,7 +154,8 @@ def run_agent_precheck(spec: AgentSpec, base_env: dict[str, str], timeout_second
             missing.append("TXDXAI_API_KEY_ZABBIX|TXDXAI_API_KEY|API_KEY")
         if missing:
             return PrecheckResult("zabbix", True, False, "missing env: " + ", ".join(missing))
-        conn_ok, detail = can_connect(api_url, 80, timeout_seconds)
+        default_port = 443 if api_url.strip().lower().startswith("https://") else 80
+        conn_ok, detail = can_connect(api_url, default_port, timeout_seconds)
         return PrecheckResult("zabbix", True, conn_ok, detail)
 
     if spec.name == "openvas":
