@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
+import requests
+import urllib3
+
 from dotenv import load_dotenv
+
+# Disable noisy SSL warnings during prechecks (self-signed certs are expected)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -81,15 +87,6 @@ def first_nonempty(values: list[str | None]) -> str:
     return ""
 
 
-def missing_required_env(env: dict[str, str], names: list[str]) -> list[str]:
-    missing: list[str] = []
-    for name in names:
-        value = env.get(name)
-        if value is None or not str(value).strip():
-            missing.append(name)
-    return missing
-
-
 def parse_host_port(raw: str, default_port: int) -> tuple[str, int] | None:
     if not raw:
         return None
@@ -114,120 +111,312 @@ def can_connect(raw: str, default_port: int, timeout_seconds: float) -> tuple[bo
         return False, f"tcp fail {host}:{port} ({type(exc).__name__})"
 
 
+def api_probe(
+    method: str,
+    url: str,
+    timeout: float,
+    auth: tuple[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+    json_body: dict | None = None,
+) -> tuple[bool, int, str]:
+    """Perform a single read-only HTTP request. Returns (success, status_code, detail)."""
+    try:
+        resp = requests.request(
+            method,
+            url,
+            auth=auth,
+            headers=headers,
+            json=json_body,
+            timeout=timeout,
+            verify=False,
+        )
+        body_preview = resp.text[:200] if resp.text else ""
+        return resp.ok, resp.status_code, body_preview
+    except requests.ConnectionError as exc:
+        return False, 0, f"connection error: {exc}"
+    except requests.Timeout:
+        return False, 0, "request timed out"
+    except Exception as exc:
+        return False, 0, f"request error: {type(exc).__name__}: {exc}"
+
+
 def run_agent_precheck(spec: AgentSpec, base_env: dict[str, str], timeout_seconds: float) -> PrecheckResult:
     env = spec.build_env(base_env)
 
     ingest_url = first_nonempty([env.get("TXDXAI_INGEST_URL"), env.get("WEBHOOK_URL")])
     company_id = first_nonempty([env.get("TXDXAI_COMPANY_ID"), env.get("COMPANY_ID")])
 
+    # ── Wazuh ────────────────────────────────────────────────────
     if spec.name == "wazuh":
         api_key = first_nonempty([env.get("TXDXAI_API_KEY_WAZUH"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
         api_host = env.get("WAZUH_API_HOST", "")
+        api_user = env.get("WAZUH_API_USER", "")
+        api_pass = env.get("WAZUH_API_PASSWORD", "")
         idx_host = env.get("WAZUH_INDEXER_HOST", "")
-        missing = missing_required_env(
-            env,
-            [
-                "TXDXAI_INGEST_URL",
-                "TXDXAI_COMPANY_ID",
-                "WAZUH_API_HOST",
-                "WAZUH_API_USER",
-                "WAZUH_API_PASSWORD",
-                "WAZUH_INDEXER_HOST",
-                "WAZUH_INDEXER_USER",
-                "WAZUH_INDEXER_PASSWORD",
-            ],
-        )
-        if not api_key:
-            missing.append("TXDXAI_API_KEY_WAZUH|TXDXAI_API_KEY|API_KEY")
-        if missing:
-            return PrecheckResult("wazuh", True, False, "missing env: " + ", ".join(missing))
-        api_conn, api_detail = can_connect(api_host, 55000, timeout_seconds)
-        idx_conn, idx_detail = can_connect(idx_host, 9200, timeout_seconds)
-        passed = api_conn and idx_conn
-        return PrecheckResult("wazuh", True, passed, f"{api_detail} | {idx_detail}")
+        idx_user = env.get("WAZUH_INDEXER_USER", "")
+        idx_pass = env.get("WAZUH_INDEXER_PASSWORD", "")
 
+        missing = []
+        if not api_key:     missing.append("TXDXAI_API_KEY_WAZUH")
+        if not ingest_url:  missing.append("TXDXAI_INGEST_URL")
+        if not company_id:  missing.append("TXDXAI_COMPANY_ID")
+        if not api_host:    missing.append("WAZUH_API_HOST")
+        if not api_user:    missing.append("WAZUH_API_USER")
+        if not api_pass:    missing.append("WAZUH_API_PASSWORD")
+        if not idx_host:    missing.append("WAZUH_INDEXER_HOST")
+        if not idx_user:    missing.append("WAZUH_INDEXER_USER")
+        if not idx_pass:    missing.append("WAZUH_INDEXER_PASSWORD")
+        if missing:
+            return PrecheckResult("wazuh", True, False, f"missing env: {', '.join(missing)}")
+
+        details: list[str] = []
+
+        # TCP check
+        api_conn, api_tcp = can_connect(api_host, 55000, timeout_seconds)
+        idx_conn, idx_tcp = can_connect(idx_host, 9200, timeout_seconds)
+        details.append(f"API {api_tcp}")
+        details.append(f"Indexer {idx_tcp}")
+
+        if not api_conn or not idx_conn:
+            return PrecheckResult("wazuh", True, False, " | ".join(details))
+
+        # Functional: Wazuh API authentication
+        auth_url = f"{api_host.rstrip('/')}/security/user/authenticate"
+        ok, status, body = api_probe("GET", auth_url, timeout_seconds, auth=(api_user, api_pass))
+        if ok:
+            details.append("API auth ok (JWT obtained)")
+        else:
+            details.append(f"API auth failed: HTTP {status}" if status else f"API auth failed: {body[:80]}")
+            return PrecheckResult("wazuh", True, False, " | ".join(details))
+
+        # Functional: Wazuh Indexer (OpenSearch) cluster info
+        idx_url = f"{idx_host.rstrip('/')}/"
+        ok, status, body = api_probe("GET", idx_url, timeout_seconds, auth=(idx_user, idx_pass))
+        if ok:
+            details.append("Indexer auth ok")
+        else:
+            details.append(f"Indexer auth failed: HTTP {status}" if status else f"Indexer failed: {body[:80]}")
+            return PrecheckResult("wazuh", True, False, " | ".join(details))
+
+        return PrecheckResult("wazuh", True, True, " | ".join(details))
+
+    # ── Zabbix ───────────────────────────────────────────────────
     if spec.name == "zabbix":
         api_key = first_nonempty([env.get("TXDXAI_API_KEY_ZABBIX"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
         api_url = env.get("ZABBIX_API_URL", "")
-        missing = missing_required_env(env, ["TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID", "ZABBIX_API_URL", "ZABBIX_USER", "ZABBIX_PASS"])
-        if not api_key:
-            missing.append("TXDXAI_API_KEY_ZABBIX|TXDXAI_API_KEY|API_KEY")
-        if missing:
-            return PrecheckResult("zabbix", True, False, "missing env: " + ", ".join(missing))
-        default_port = 443 if api_url.strip().lower().startswith("https://") else 80
-        conn_ok, detail = can_connect(api_url, default_port, timeout_seconds)
-        return PrecheckResult("zabbix", True, conn_ok, detail)
+        zbx_user = env.get("ZABBIX_USER", "")
+        zbx_pass = env.get("ZABBIX_PASS", "")
 
+        missing = []
+        if not api_key:    missing.append("TXDXAI_API_KEY_ZABBIX")
+        if not ingest_url: missing.append("TXDXAI_INGEST_URL")
+        if not company_id: missing.append("TXDXAI_COMPANY_ID")
+        if not api_url:    missing.append("ZABBIX_API_URL")
+        if not zbx_user:   missing.append("ZABBIX_USER")
+        if not zbx_pass:   missing.append("ZABBIX_PASS")
+        if missing:
+            return PrecheckResult("zabbix", True, False, f"missing env: {', '.join(missing)}")
+
+        details = []
+        conn_ok, tcp_detail = can_connect(api_url, 80, timeout_seconds)
+        details.append(tcp_detail)
+        if not conn_ok:
+            return PrecheckResult("zabbix", True, False, " | ".join(details))
+
+        # Functional: apiinfo.version (no auth required)
+        version_body = {"jsonrpc": "2.0", "method": "apiinfo.version", "params": {}, "id": 1}
+        ok, status, body = api_probe("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=version_body)
+        if ok:
+            details.append(f"API reachable (version response: {body[:60]})")
+        else:
+            details.append(f"API unreachable: HTTP {status} - {body[:80]}" if status else f"API unreachable: {body[:80]}")
+            return PrecheckResult("zabbix", True, False, " | ".join(details))
+
+        # Functional: user.login (validates credentials)
+        login_body = {"jsonrpc": "2.0", "method": "user.login", "params": {"username": zbx_user, "password": zbx_pass}, "id": 2}
+        ok, status, body = api_probe("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=login_body)
+        if ok and '"error"' not in body:
+            details.append("auth ok (login successful)")
+        elif ok and '"error"' in body:
+            # Try legacy format (Zabbix < 7.0)
+            login_body_legacy = {"jsonrpc": "2.0", "method": "user.login", "params": {"user": zbx_user, "password": zbx_pass}, "id": 3}
+            ok2, status2, body2 = api_probe("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=login_body_legacy)
+            if ok2 and '"error"' not in body2:
+                details.append("auth ok (login successful, legacy format)")
+            else:
+                details.append(f"auth failed: {body[:100]}")
+                return PrecheckResult("zabbix", True, False, " | ".join(details))
+        else:
+            details.append(f"auth failed: HTTP {status}" if status else f"auth failed: {body[:80]}")
+            return PrecheckResult("zabbix", True, False, " | ".join(details))
+
+        return PrecheckResult("zabbix", True, True, " | ".join(details))
+
+    # ── OpenVAS ──────────────────────────────────────────────────
     if spec.name == "openvas":
         api_key = first_nonempty([env.get("TXDXAI_API_KEY_OPENVAS"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
-        output_mode = (env.get("OPENVAS_OUTPUT_MODE") or env.get("OUTPUT_MODE") or "").strip().lower()
-        collector = (env.get("OPENVAS_COLLECTOR") or env.get("COLLECTOR") or "").strip().lower()
-        missing = missing_required_env(env, ["TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID"])
-        if not api_key:
-            missing.append("TXDXAI_API_KEY_OPENVAS|TXDXAI_API_KEY|API_KEY")
-        if not output_mode:
-            missing.append("OPENVAS_OUTPUT_MODE")
-        if not collector:
-            missing.append("OPENVAS_COLLECTOR")
-        if missing:
-            return PrecheckResult("openvas", True, False, "missing env: " + ", ".join(missing))
+        output_mode = (env.get("OUTPUT_MODE") or "").strip().lower()
+        collector = (env.get("COLLECTOR") or "").strip().lower()
         output_ok = output_mode in {"console", "http"}
         collector_ok = collector in {"gmp", "simulated"}
-        if not output_ok or not collector_ok:
-            return PrecheckResult("openvas", True, False, f"invalid env values: OPENVAS_OUTPUT_MODE={output_mode!r}, OPENVAS_COLLECTOR={collector!r}")
+
+        missing = []
+        if not api_key:    missing.append("TXDXAI_API_KEY_OPENVAS")
+        if not ingest_url: missing.append("TXDXAI_INGEST_URL")
+        if not company_id: missing.append("TXDXAI_COMPANY_ID")
+        if not output_ok:  missing.append("OUTPUT_MODE (must be console|http)")
+        if not collector_ok: missing.append("COLLECTOR (must be gmp|simulated)")
+        if missing:
+            return PrecheckResult("openvas", True, False, f"invalid/missing env: {', '.join(missing)}")
+
         if collector == "simulated":
-            return PrecheckResult("openvas", True, True, "collector=simulated")
-        # GMP real mode: validate socket-path or tcp host
+            return PrecheckResult("openvas", True, True, "collector=simulated (no connectivity needed)")
+
+        # GMP real mode: validate socket-path or tcp host (GMP is not HTTP, TCP only)
         gvm_socket = (env.get("GVM_SOCKET") or "").strip()
         gvm_host = (env.get("GVM_HOST") or "").strip()
-        gvm_port_raw = (env.get("GVM_PORT") or "9390").strip()
-        try:
-            gvm_port = int(gvm_port_raw)
-        except ValueError:
-            gvm_port = 9390
+        gvm_port = int(env.get("GVM_PORT", "9390"))
         if gvm_socket:
             exists = Path(gvm_socket).exists()
             return PrecheckResult("openvas", True, exists, f"gvm socket {'ok' if exists else 'missing'}: {gvm_socket}")
         if gvm_host:
             conn_ok, detail = can_connect(gvm_host, gvm_port, timeout_seconds)
-            return PrecheckResult("openvas", True, conn_ok, detail)
+            return PrecheckResult("openvas", True, conn_ok, f"GMP {detail}")
         return PrecheckResult("openvas", True, False, "collector=gmp but missing GVM_SOCKET/GVM_HOST")
 
+    # ── InsightVM ────────────────────────────────────────────────
     if spec.name == "insightvm":
         api_key = first_nonempty([env.get("TXDXAI_API_KEY_INSIGHTVM"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
         base_url = env.get("INSIGHTVM_BASE_URL", "")
-        missing = missing_required_env(env, ["TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID", "INSIGHTVM_BASE_URL", "INSIGHTVM_USER", "INSIGHTVM_PASSWORD"])
-        if not api_key:
-            missing.append("TXDXAI_API_KEY_INSIGHTVM|TXDXAI_API_KEY|API_KEY")
-        if missing:
-            return PrecheckResult("insightvm", True, False, "missing env: " + ", ".join(missing))
-        conn_ok, detail = can_connect(base_url, 3780, timeout_seconds)
-        return PrecheckResult("insightvm", True, conn_ok, detail)
+        ivm_user = env.get("INSIGHTVM_USER", "")
+        ivm_pass = env.get("INSIGHTVM_PASSWORD", "")
 
+        missing = []
+        if not api_key:    missing.append("TXDXAI_API_KEY_INSIGHTVM")
+        if not ingest_url: missing.append("TXDXAI_INGEST_URL")
+        if not company_id: missing.append("TXDXAI_COMPANY_ID")
+        if not base_url:   missing.append("INSIGHTVM_BASE_URL")
+        if not ivm_user:   missing.append("INSIGHTVM_USER")
+        if not ivm_pass:   missing.append("INSIGHTVM_PASSWORD")
+        if missing:
+            return PrecheckResult("insightvm", True, False, f"missing env: {', '.join(missing)}")
+
+        details = []
+        conn_ok, tcp_detail = can_connect(base_url, 3780, timeout_seconds)
+        details.append(tcp_detail)
+        if not conn_ok:
+            return PrecheckResult("insightvm", True, False, " | ".join(details))
+
+        # Functional: GET /api/3/administration/info
+        info_url = f"{base_url.rstrip('/')}/administration/info"
+        ok, status, body = api_probe("GET", info_url, timeout_seconds, auth=(ivm_user, ivm_pass))
+        if ok:
+            details.append("API auth ok (administration/info accessible)")
+        elif status == 401:
+            details.append("auth failed: HTTP 401 - invalid credentials")
+            return PrecheckResult("insightvm", True, False, " | ".join(details))
+        elif status == 403:
+            details.append("auth denied: HTTP 403 - insufficient permissions")
+            return PrecheckResult("insightvm", True, False, " | ".join(details))
+        else:
+            details.append(f"API probe: HTTP {status}" if status else f"API probe failed: {body[:80]}")
+            # Non-auth errors might be acceptable (some InsightVM versions differ)
+            # Still mark as passed if TCP was ok
+            details.append("(TCP ok, API probe inconclusive)")
+
+        return PrecheckResult("insightvm", True, True, " | ".join(details))
+
+    # ── Uptime Kuma ──────────────────────────────────────────────
     if spec.name == "uptimekuma":
         api_key = first_nonempty([env.get("TXDXAI_API_KEY_UPTIMEKUMA"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
         kuma_url = env.get("UPTIME_KUMA_URL", "")
         has_auth = bool(env.get("UPTIME_KUMA_API_KEY")) or (bool(env.get("UPTIME_KUMA_USERNAME")) and bool(env.get("UPTIME_KUMA_PASSWORD")))
-        missing = missing_required_env(env, ["TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID", "UPTIME_KUMA_URL"])
-        if not api_key:
-            missing.append("TXDXAI_API_KEY_UPTIMEKUMA|TXDXAI_API_KEY|API_KEY")
-        if not has_auth:
-            missing.append("UPTIME_KUMA_API_KEY or UPTIME_KUMA_USERNAME+UPTIME_KUMA_PASSWORD")
-        if missing:
-            return PrecheckResult("uptimekuma", True, False, "missing env: " + ", ".join(missing))
-        conn_ok, detail = can_connect(kuma_url, 3001, timeout_seconds)
-        return PrecheckResult("uptimekuma", True, conn_ok, detail)
 
+        missing = []
+        if not api_key:    missing.append("TXDXAI_API_KEY_UPTIMEKUMA")
+        if not ingest_url: missing.append("TXDXAI_INGEST_URL")
+        if not company_id: missing.append("TXDXAI_COMPANY_ID")
+        if not kuma_url:   missing.append("UPTIME_KUMA_URL")
+        if not has_auth:   missing.append("UPTIME_KUMA_API_KEY or UPTIME_KUMA_USERNAME+PASSWORD")
+        if missing:
+            return PrecheckResult("uptimekuma", True, False, f"missing env: {', '.join(missing)}")
+
+        details = []
+        conn_ok, tcp_detail = can_connect(kuma_url, 3001, timeout_seconds)
+        details.append(tcp_detail)
+        if not conn_ok:
+            return PrecheckResult("uptimekuma", True, False, " | ".join(details))
+
+        # Functional: GET /metrics (Prometheus endpoint, no auth usually required)
+        metrics_path = env.get("UPTIME_KUMA_METRICS_PATH", "/metrics")
+        metrics_url = f"{kuma_url.rstrip('/')}{metrics_path}"
+        ok, status, body = api_probe("GET", metrics_url, timeout_seconds)
+        if ok:
+            details.append("metrics endpoint ok")
+        else:
+            details.append(f"metrics endpoint: HTTP {status}" if status else f"metrics failed: {body[:80]}")
+            # Metrics might require auth in some setups; TCP was ok so don't fail hard
+            details.append("(TCP ok, metrics probe inconclusive)")
+
+        return PrecheckResult("uptimekuma", True, True, " | ".join(details))
+
+    # ── Nessus ───────────────────────────────────────────────────
     if spec.name == "nessus":
         api_key = first_nonempty([env.get("TXDXAI_API_KEY_NESSUS"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
         base_url = env.get("NESSUS_BASE_URL", "")
-        missing = missing_required_env(env, ["TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID", "NESSUS_BASE_URL", "NESSUS_ACCESS_KEY", "NESSUS_SECRET_KEY"])
-        if not api_key:
-            missing.append("TXDXAI_API_KEY_NESSUS|TXDXAI_API_KEY|API_KEY")
+        access_key = env.get("NESSUS_ACCESS_KEY", "")
+        secret_key = env.get("NESSUS_SECRET_KEY", "")
+
+        missing = []
+        if not api_key:     missing.append("TXDXAI_API_KEY_NESSUS")
+        if not ingest_url:  missing.append("TXDXAI_INGEST_URL")
+        if not company_id:  missing.append("TXDXAI_COMPANY_ID")
+        if not base_url:    missing.append("NESSUS_BASE_URL")
+        if not access_key:  missing.append("NESSUS_ACCESS_KEY")
+        if not secret_key:  missing.append("NESSUS_SECRET_KEY")
         if missing:
-            return PrecheckResult("nessus", True, False, "missing env: " + ", ".join(missing))
-        conn_ok, detail = can_connect(base_url, 8834, timeout_seconds)
-        return PrecheckResult("nessus", True, conn_ok, detail)
+            return PrecheckResult("nessus", True, False, f"missing env: {', '.join(missing)}")
+
+        details = []
+        conn_ok, tcp_detail = can_connect(base_url, 8834, timeout_seconds)
+        details.append(tcp_detail)
+        if not conn_ok:
+            return PrecheckResult("nessus", True, False, " | ".join(details))
+
+        # Functional: GET /server/status (no auth required)
+        status_url = f"{base_url.rstrip('/')}/server/status"
+        ok, status, body = api_probe("GET", status_url, timeout_seconds)
+        if ok:
+            details.append(f"server status ok ({body[:60]})")
+        else:
+            details.append(f"server status: HTTP {status}" if status else f"server status failed: {body[:80]}")
+
+        # Functional: GET /server/properties with API keys (validates credentials)
+        props_url = f"{base_url.rstrip('/')}/server/properties"
+        nessus_headers = {"X-ApiKeys": f"accessKey={access_key}; secretKey={secret_key}"}
+        ok, status, body = api_probe("GET", props_url, timeout_seconds, headers=nessus_headers)
+        if ok:
+            details.append("API keys valid")
+        elif status == 401 or status == 403:
+            details.append(f"API keys invalid: HTTP {status}")
+            return PrecheckResult("nessus", True, False, " | ".join(details))
+        else:
+            details.append(f"API keys probe: HTTP {status}" if status else f"API keys probe: {body[:80]}")
+
+        return PrecheckResult("nessus", True, True, " | ".join(details))
+
+    # ── Backend (TxDxAI Ingest) ──────────────────────────────────
+    if spec.name == "backend":
+        if not ingest_url:
+            return PrecheckResult("backend", False, False, "missing TXDXAI_INGEST_URL")
+        conn_ok, tcp_detail = can_connect(ingest_url, 443, timeout_seconds)
+        if not conn_ok:
+            return PrecheckResult("backend", False, False, f"backend {tcp_detail}")
+        ok, status, body = api_probe("GET", ingest_url, timeout_seconds)
+        if ok or status in (405, 401, 403):
+            # 405 = Method Not Allowed (POST-only endpoint responding to GET) → endpoint exists
+            return PrecheckResult("backend", False, True, f"backend reachable: HTTP {status}")
+        return PrecheckResult("backend", False, False, f"backend unreachable: HTTP {status} - {body[:80]}" if status else f"backend unreachable: {body[:80]}")
 
     return PrecheckResult(spec.name, True, False, "no precheck implemented")
 
@@ -478,6 +667,9 @@ def main() -> None:
     action = resolve_startup_action(menu_enabled=menu_enabled, default_option=args.startup_menu_default_option)
     if action != "skip_and_continue":
         results = [run_agent_precheck(spec, base_env, timeout_seconds=args.startup_test_timeout_seconds) for spec in selected_specs]
+        # Also test backend connectivity (non-required, won't block startup)
+        backend_spec = AgentSpec(name="backend", command_builder=lambda p, e: [], env_map={})
+        results.append(run_agent_precheck(backend_spec, base_env, timeout_seconds=args.startup_test_timeout_seconds))
         _, _, failed_required = log_precheck_results(results)
 
         if action == "run_and_exit":
