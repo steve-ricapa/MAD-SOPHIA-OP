@@ -1,6 +1,7 @@
 import os
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
+import argparse
 import time
 import socket
 import xml.etree.ElementTree as ET
@@ -32,6 +33,12 @@ OPENVAS_BANNER = r"""
   \___/| .__/ \___|_| |_|   \_/_/   \_\____/
        |_|
 """
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="OpenVAS real-time integration agent")
+    parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    return parser.parse_args()
 
 
 def now() -> str:
@@ -300,6 +307,7 @@ if GVM_SOCKET:
 print(f"[{now()}] DETAIL_LEVEL={DETAIL_LEVEL} | TOP_N={TOP_N} | REPORT_MAX_KB={REPORT_MAX_KB}KB | FINDING_TEXT_MAX={FINDING_TEXT_MAX}")
 
 lock_path = f"{STATE_PATH}.lock"
+args = parse_args()
 
 while True:
     print(f"\n[{now()}] Nuevo ciclo")
@@ -495,6 +503,10 @@ while True:
         break
     except Exception as e:
         handle_exception("cycle.top_level", e, {"accion": "Se continuará el siguiente ciclo"})
+
+    if args.once:
+        print(f"[{now()}] Modo single-run completado. Saliendo.")
+        break
 
     print(f"[{now()}] Esperando {POLL_SECONDS}s")
     time.sleep(POLL_SECONDS)
