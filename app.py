@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 import requests
@@ -56,12 +59,57 @@ def parse_agents(raw: str | None, available: list[str]) -> list[str]:
     return unique_ordered
 
 
+def parse_test_targets(raw: str | None, selected: list[str], available: list[str]) -> list[str]:
+    """
+    Parse startup test target scope:
+      - all
+      - selected
+      - single agent name (e.g. wazuh)
+      - comma-separated list of names
+    """
+    value = (raw or "selected").strip().lower()
+    if value == "all":
+        return list(available)
+    if value == "selected":
+        return list(selected)
+
+    requested = [item.strip().lower() for item in value.split(",") if item.strip()]
+    if not requested:
+        return list(selected)
+    unknown = [name for name in requested if name not in available]
+    if unknown:
+        raise SystemExit(f"Unknown startup test target(s): {', '.join(unknown)}")
+    # preserve order and remove duplicates
+    unique_ordered: list[str] = []
+    seen: set[str] = set()
+    for name in requested:
+        if name not in seen:
+            unique_ordered.append(name)
+            seen.add(name)
+    return unique_ordered
+
+
 @dataclass
 class PrecheckResult:
     name: str
     required: bool
     passed: bool
     details: str
+    phases: list[dict[str, Any]] = field(default_factory=list)
+    summary: str = ""
+
+
+@dataclass
+class DiagnosticExecResult:
+    name: str
+    status: str  # PASS | FAIL | SKIPPED
+    details: str
+    phase: str = "execution"
+    raw_error_excerpt: str | None = None
+    return_code: int | None = None
+    log_file: str | None = None
+    phases: list[dict[str, Any]] = field(default_factory=list)
+    summary: str = ""
 
 
 @dataclass
@@ -140,296 +188,312 @@ def api_probe(
         return False, 0, f"request error: {type(exc).__name__}: {exc}"
 
 
-def run_agent_precheck(spec: AgentSpec, base_env: dict[str, str], timeout_seconds: float) -> PrecheckResult:
+def _phase_result(
+    phase: str,
+    status: str,
+    started_at: float,
+    normalized_error: str | None = None,
+    raw_error_excerpt: str | None = None,
+    evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "phase": phase,
+        "status": status,
+        "duration_ms": int((time.perf_counter() - started_at) * 1000),
+        "normalized_error": normalized_error,
+        "raw_error_excerpt": raw_error_excerpt,
+        "evidence": evidence or {},
+    }
+
+
+def _is_placeholder(value: str) -> bool:
+    low = (value or "").strip().lower()
+    return any(token in low for token in ("your_", "changeme", "example", "replace_me", "<", ">"))
+
+
+def _resolve_dns(host: str) -> tuple[list[str], str | None]:
+    try:
+        infos = socket.getaddrinfo(host, None)
+        ips = sorted({item[4][0] for item in infos if item and item[4] and item[4][0]})
+        return ips, None
+    except socket.gaierror as exc:
+        return [], f"dns_error:{exc}"
+    except Exception as exc:
+        return [], f"dns_error:{type(exc).__name__}:{exc}"
+
+
+def _tcp_probe(host: str, port: int, timeout_seconds: float) -> tuple[bool, str | None, str | None]:
+    try:
+        with socket.create_connection((host, port), timeout=timeout_seconds):
+            return True, None, None
+    except socket.timeout as exc:
+        return False, "timeout", str(exc)
+    except ConnectionRefusedError as exc:
+        return False, "refused", str(exc)
+    except ConnectionResetError as exc:
+        return False, "reset", str(exc)
+    except OSError as exc:
+        txt = str(exc).lower()
+        if "unreach" in txt:
+            return False, "unreachable", str(exc)
+        return False, "network_error", str(exc)
+    except Exception as exc:
+        return False, "network_error", f"{type(exc).__name__}: {exc}"
+
+
+def _http_probe_detailed(
+    method: str,
+    url: str,
+    timeout: float,
+    auth: tuple[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+    json_body: dict | None = None,
+) -> dict[str, Any]:
+    try:
+        resp = requests.request(
+            method,
+            url,
+            auth=auth,
+            headers=headers,
+            json=json_body,
+            timeout=timeout,
+            verify=False,
+        )
+        return {
+            "ok": resp.ok,
+            "status_code": resp.status_code,
+            "body_preview": (resp.text or "")[:200],
+            "error_kind": None,
+            "error_text": None,
+        }
+    except requests.exceptions.SSLError as exc:
+        return {"ok": False, "status_code": 0, "body_preview": "", "error_kind": "tls_error", "error_text": str(exc)}
+    except requests.exceptions.Timeout as exc:
+        return {"ok": False, "status_code": 0, "body_preview": "", "error_kind": "timeout", "error_text": str(exc)}
+    except requests.exceptions.ConnectionError as exc:
+        return {"ok": False, "status_code": 0, "body_preview": "", "error_kind": "connection_error", "error_text": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "status_code": 0, "body_preview": "", "error_kind": "request_error", "error_text": f"{type(exc).__name__}: {exc}"}
+
+
+def _add_skipped(phases: list[dict[str, Any]], phase: str, reason: str) -> None:
+    phases.append({"phase": phase, "status": "SKIPPED", "duration_ms": 0, "normalized_error": reason, "raw_error_excerpt": reason[:200], "evidence": {}})
+
+
+def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], timeout_seconds: float) -> PrecheckResult:
     env = spec.build_env(base_env)
+    phases: list[dict[str, Any]] = []
 
-    ingest_url = first_nonempty([env.get("TXDXAI_INGEST_URL"), env.get("WEBHOOK_URL")])
-    company_id = first_nonempty([env.get("TXDXAI_COMPANY_ID"), env.get("COMPANY_ID")])
-
-    # ── Wazuh ────────────────────────────────────────────────────
-    if spec.name == "wazuh":
-        api_key = first_nonempty([env.get("TXDXAI_API_KEY_WAZUH"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
-        api_host = env.get("WAZUH_API_HOST", "")
-        api_user = env.get("WAZUH_API_USER", "")
-        api_pass = env.get("WAZUH_API_PASSWORD", "")
-        idx_host = env.get("WAZUH_INDEXER_HOST", "")
-        idx_user = env.get("WAZUH_INDEXER_USER", "")
-        idx_pass = env.get("WAZUH_INDEXER_PASSWORD", "")
-
-        missing = []
-        if not api_key:     missing.append("TXDXAI_API_KEY_WAZUH")
-        if not ingest_url:  missing.append("TXDXAI_INGEST_URL")
-        if not company_id:  missing.append("TXDXAI_COMPANY_ID")
-        if not api_host:    missing.append("WAZUH_API_HOST")
-        if not api_user:    missing.append("WAZUH_API_USER")
-        if not api_pass:    missing.append("WAZUH_API_PASSWORD")
-        if not idx_host:    missing.append("WAZUH_INDEXER_HOST")
-        if not idx_user:    missing.append("WAZUH_INDEXER_USER")
-        if not idx_pass:    missing.append("WAZUH_INDEXER_PASSWORD")
-        if missing:
-            return PrecheckResult("wazuh", True, False, f"missing env: {', '.join(missing)}")
-
-        details: list[str] = []
-
-        # TCP check
-        api_conn, api_tcp = can_connect(api_host, 55000, timeout_seconds)
-        idx_conn, idx_tcp = can_connect(idx_host, 9200, timeout_seconds)
-        details.append(f"API {api_tcp}")
-        details.append(f"Indexer {idx_tcp}")
-
-        if not api_conn or not idx_conn:
-            return PrecheckResult("wazuh", True, False, " | ".join(details))
-
-        # Functional: Wazuh API authentication
-        auth_url = f"{api_host.rstrip('/')}/security/user/authenticate"
-        ok, status, body = api_probe("GET", auth_url, timeout_seconds, auth=(api_user, api_pass))
-        if ok:
-            details.append("API auth ok (JWT obtained)")
-        else:
-            details.append(f"API auth failed: HTTP {status}" if status else f"API auth failed: {body[:80]}")
-            return PrecheckResult("wazuh", True, False, " | ".join(details))
-
-        # Functional: Wazuh Indexer (OpenSearch) cluster info
-        idx_url = f"{idx_host.rstrip('/')}/"
-        ok, status, body = api_probe("GET", idx_url, timeout_seconds, auth=(idx_user, idx_pass))
-        if ok:
-            details.append("Indexer auth ok")
-        else:
-            details.append(f"Indexer auth failed: HTTP {status}" if status else f"Indexer failed: {body[:80]}")
-            return PrecheckResult("wazuh", True, False, " | ".join(details))
-
-        return PrecheckResult("wazuh", True, True, " | ".join(details))
-
-    # ── Zabbix ───────────────────────────────────────────────────
-    if spec.name == "zabbix":
-        api_key = first_nonempty([env.get("TXDXAI_API_KEY_ZABBIX"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
-        api_url = env.get("ZABBIX_API_URL", "")
-        zbx_user = env.get("ZABBIX_USER", "")
-        zbx_pass = env.get("ZABBIX_PASS", "")
-
-        missing = []
-        if not api_key:    missing.append("TXDXAI_API_KEY_ZABBIX")
-        if not ingest_url: missing.append("TXDXAI_INGEST_URL")
-        if not company_id: missing.append("TXDXAI_COMPANY_ID")
-        if not api_url:    missing.append("ZABBIX_API_URL")
-        if not zbx_user:   missing.append("ZABBIX_USER")
-        if not zbx_pass:   missing.append("ZABBIX_PASS")
-        if missing:
-            return PrecheckResult("zabbix", True, False, f"missing env: {', '.join(missing)}")
-
-        details = []
-        conn_ok, tcp_detail = can_connect(api_url, 80, timeout_seconds)
-        details.append(tcp_detail)
-        if not conn_ok:
-            return PrecheckResult("zabbix", True, False, " | ".join(details))
-
-        # Functional: apiinfo.version (no auth required)
-        version_body = {"jsonrpc": "2.0", "method": "apiinfo.version", "params": {}, "id": 1}
-        ok, status, body = api_probe("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=version_body)
-        if ok:
-            details.append(f"API reachable (version response: {body[:60]})")
-        else:
-            details.append(f"API unreachable: HTTP {status} - {body[:80]}" if status else f"API unreachable: {body[:80]}")
-            return PrecheckResult("zabbix", True, False, " | ".join(details))
-
-        # Functional: user.login (validates credentials)
-        login_body = {"jsonrpc": "2.0", "method": "user.login", "params": {"username": zbx_user, "password": zbx_pass}, "id": 2}
-        ok, status, body = api_probe("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=login_body)
-        if ok and '"error"' not in body:
-            details.append("auth ok (login successful)")
-        elif ok and '"error"' in body:
-            # Try legacy format (Zabbix < 7.0)
-            login_body_legacy = {"jsonrpc": "2.0", "method": "user.login", "params": {"user": zbx_user, "password": zbx_pass}, "id": 3}
-            ok2, status2, body2 = api_probe("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=login_body_legacy)
-            if ok2 and '"error"' not in body2:
-                details.append("auth ok (login successful, legacy format)")
-            else:
-                details.append(f"auth failed: {body[:100]}")
-                return PrecheckResult("zabbix", True, False, " | ".join(details))
-        else:
-            details.append(f"auth failed: HTTP {status}" if status else f"auth failed: {body[:80]}")
-            return PrecheckResult("zabbix", True, False, " | ".join(details))
-
-        return PrecheckResult("zabbix", True, True, " | ".join(details))
-
-    # ── OpenVAS ──────────────────────────────────────────────────
+    required_map: dict[str, list[str]] = {
+        "wazuh": ["TXDXAI_API_KEY_WAZUH", "TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID", "WAZUH_API_HOST", "WAZUH_API_USER", "WAZUH_API_PASSWORD", "WAZUH_INDEXER_HOST", "WAZUH_INDEXER_USER", "WAZUH_INDEXER_PASSWORD"],
+        "zabbix": ["TXDXAI_API_KEY_ZABBIX", "TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID", "ZABBIX_API_URL", "ZABBIX_USER", "ZABBIX_PASS"],
+        "openvas": ["TXDXAI_API_KEY_OPENVAS", "TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID"],
+        "insightvm": ["TXDXAI_API_KEY_INSIGHTVM", "TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID", "INSIGHTVM_BASE_URL", "INSIGHTVM_USER", "INSIGHTVM_PASSWORD"],
+        "uptimekuma": ["TXDXAI_API_KEY_UPTIMEKUMA", "TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID", "UPTIME_KUMA_URL"],
+        "nessus": ["TXDXAI_API_KEY_NESSUS", "TXDXAI_INGEST_URL", "TXDXAI_COMPANY_ID", "NESSUS_BASE_URL", "NESSUS_ACCESS_KEY", "NESSUS_SECRET_KEY"],
+        "backend": ["TXDXAI_INGEST_URL"],
+    }
+    required = spec.name != "backend"
+    env_start = time.perf_counter()
+    missing: list[str] = []
+    placeholders: list[str] = []
+    for key in required_map.get(spec.name, []):
+        val = (env.get(key) or "").strip()
+        if not val:
+            missing.append(key)
+        elif _is_placeholder(val):
+            placeholders.append(key)
     if spec.name == "openvas":
-        api_key = first_nonempty([env.get("TXDXAI_API_KEY_OPENVAS"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
         output_mode = (env.get("OUTPUT_MODE") or "").strip().lower()
         collector = (env.get("COLLECTOR") or "").strip().lower()
-        output_ok = output_mode in {"console", "http"}
-        collector_ok = collector in {"gmp", "simulated"}
-
-        missing = []
-        if not api_key:    missing.append("TXDXAI_API_KEY_OPENVAS")
-        if not ingest_url: missing.append("TXDXAI_INGEST_URL")
-        if not company_id: missing.append("TXDXAI_COMPANY_ID")
-        if not output_ok:  missing.append("OUTPUT_MODE (must be console|http)")
-        if not collector_ok: missing.append("COLLECTOR (must be gmp|simulated)")
-        if missing:
-            return PrecheckResult("openvas", True, False, f"invalid/missing env: {', '.join(missing)}")
-
-        if collector == "simulated":
-            return PrecheckResult("openvas", True, True, "collector=simulated (no connectivity needed)")
-
-        # GMP real mode: validate socket-path or tcp host (GMP is not HTTP, TCP only)
-        gvm_socket = (env.get("GVM_SOCKET") or "").strip()
-        gvm_host = (env.get("GVM_HOST") or "").strip()
-        gvm_port = int(env.get("GVM_PORT", "9390"))
-        if gvm_socket:
-            exists = Path(gvm_socket).exists()
-            return PrecheckResult("openvas", True, exists, f"gvm socket {'ok' if exists else 'missing'}: {gvm_socket}")
-        if gvm_host:
-            conn_ok, detail = can_connect(gvm_host, gvm_port, timeout_seconds)
-            return PrecheckResult("openvas", True, conn_ok, f"GMP {detail}")
-        return PrecheckResult("openvas", True, False, "collector=gmp but missing GVM_SOCKET/GVM_HOST")
-
-    # ── InsightVM ────────────────────────────────────────────────
-    if spec.name == "insightvm":
-        api_key = first_nonempty([env.get("TXDXAI_API_KEY_INSIGHTVM"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
-        base_url = env.get("INSIGHTVM_BASE_URL", "")
-        ivm_user = env.get("INSIGHTVM_USER", "")
-        ivm_pass = env.get("INSIGHTVM_PASSWORD", "")
-
-        missing = []
-        if not api_key:    missing.append("TXDXAI_API_KEY_INSIGHTVM")
-        if not ingest_url: missing.append("TXDXAI_INGEST_URL")
-        if not company_id: missing.append("TXDXAI_COMPANY_ID")
-        if not base_url:   missing.append("INSIGHTVM_BASE_URL")
-        if not ivm_user:   missing.append("INSIGHTVM_USER")
-        if not ivm_pass:   missing.append("INSIGHTVM_PASSWORD")
-        if missing:
-            return PrecheckResult("insightvm", True, False, f"missing env: {', '.join(missing)}")
-
-        details = []
-        conn_ok, tcp_detail = can_connect(base_url, 3780, timeout_seconds)
-        details.append(tcp_detail)
-        if not conn_ok:
-            return PrecheckResult("insightvm", True, False, " | ".join(details))
-
-        # Functional: GET /api/3/administration/info
-        info_url = f"{base_url.rstrip('/')}/administration/info"
-        ok, status, body = api_probe("GET", info_url, timeout_seconds, auth=(ivm_user, ivm_pass))
-        if ok:
-            details.append("API auth ok (administration/info accessible)")
-        elif status == 401:
-            details.append("auth failed: HTTP 401 - invalid credentials")
-            return PrecheckResult("insightvm", True, False, " | ".join(details))
-        elif status == 403:
-            details.append("auth denied: HTTP 403 - insufficient permissions")
-            return PrecheckResult("insightvm", True, False, " | ".join(details))
-        else:
-            details.append(f"API probe: HTTP {status}" if status else f"API probe failed: {body[:80]}")
-            # Non-auth errors might be acceptable (some InsightVM versions differ)
-            # Still mark as passed if TCP was ok
-            details.append("(TCP ok, API probe inconclusive)")
-
-        return PrecheckResult("insightvm", True, True, " | ".join(details))
-
-    # ── Uptime Kuma ──────────────────────────────────────────────
+        if output_mode not in {"console", "http"}:
+            missing.append("OUTPUT_MODE")
+        if collector not in {"gmp", "simulated"}:
+            missing.append("COLLECTOR")
     if spec.name == "uptimekuma":
-        api_key = first_nonempty([env.get("TXDXAI_API_KEY_UPTIMEKUMA"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
-        kuma_url = env.get("UPTIME_KUMA_URL", "")
         has_auth = bool(env.get("UPTIME_KUMA_API_KEY")) or (bool(env.get("UPTIME_KUMA_USERNAME")) and bool(env.get("UPTIME_KUMA_PASSWORD")))
+        if not has_auth:
+            missing.append("UPTIME_KUMA_API_KEY or UPTIME_KUMA_USERNAME+PASSWORD")
+    if missing or placeholders:
+        norm = f"missing_env:{','.join(missing)}" if missing else f"placeholder_env:{','.join(placeholders)}"
+        raw = f"missing={missing} placeholders={placeholders}"
+        phases.append(_phase_result("env", "FAIL", env_start, norm, raw, {"missing": missing, "placeholders": placeholders}))
+        for phase in ("dns", "tcp", "tls", "auth", "api"):
+            _add_skipped(phases, phase, "blocked_by_env")
+        summary = f"env FAIL: {raw}"
+        return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
+    phases.append(_phase_result("env", "PASS", env_start, evidence={"required_keys": required_map.get(spec.name, [])}))
 
-        missing = []
-        if not api_key:    missing.append("TXDXAI_API_KEY_UPTIMEKUMA")
-        if not ingest_url: missing.append("TXDXAI_INGEST_URL")
-        if not company_id: missing.append("TXDXAI_COMPANY_ID")
-        if not kuma_url:   missing.append("UPTIME_KUMA_URL")
-        if not has_auth:   missing.append("UPTIME_KUMA_API_KEY or UPTIME_KUMA_USERNAME+PASSWORD")
-        if missing:
-            return PrecheckResult("uptimekuma", True, False, f"missing env: {', '.join(missing)}")
+    target = ""
+    default_port = 443
+    if spec.name == "wazuh":
+        target = env.get("WAZUH_API_HOST", "")
+        default_port = 55000
+    elif spec.name == "zabbix":
+        target = env.get("ZABBIX_API_URL", "")
+        default_port = 80
+    elif spec.name == "openvas":
+        target = env.get("GVM_HOST", "")
+        default_port = int(env.get("GVM_PORT", "9390"))
+    elif spec.name == "insightvm":
+        target = env.get("INSIGHTVM_BASE_URL", "")
+        default_port = 3780
+    elif spec.name == "uptimekuma":
+        target = env.get("UPTIME_KUMA_URL", "")
+        default_port = 3001
+    elif spec.name == "nessus":
+        target = env.get("NESSUS_BASE_URL", "")
+        default_port = 8834
+    elif spec.name == "backend":
+        target = first_nonempty([env.get("TXDXAI_INGEST_URL"), env.get("WEBHOOK_URL")])
+        default_port = 443
 
-        details = []
-        conn_ok, tcp_detail = can_connect(kuma_url, 3001, timeout_seconds)
-        details.append(tcp_detail)
-        if not conn_ok:
-            return PrecheckResult("uptimekuma", True, False, " | ".join(details))
+    host_port = parse_host_port(target, default_port) if target else None
+    dns_start = time.perf_counter()
+    if spec.name == "openvas" and (env.get("COLLECTOR") or "").strip().lower() == "simulated":
+        phases.append(_phase_result("dns", "SKIPPED", dns_start, "collector_simulated", evidence={"collector": "simulated"}))
+        _add_skipped(phases, "tcp", "collector_simulated")
+        _add_skipped(phases, "tls", "collector_simulated")
+        _add_skipped(phases, "auth", "collector_simulated")
+        _add_skipped(phases, "api", "collector_simulated")
+        summary = "collector=simulated"
+        return PrecheckResult(spec.name, required, True, summary, phases=phases, summary=summary)
+    if not host_port:
+        phases.append(_phase_result("dns", "FAIL", dns_start, "invalid_host", f"invalid host/url: {target}", {"target": target}))
+        for phase in ("tcp", "tls", "auth", "api"):
+            _add_skipped(phases, phase, "blocked_by_dns")
+        summary = f"dns FAIL invalid_host: {target}"
+        return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
+    host, port = host_port
+    ips, dns_err = _resolve_dns(host)
+    if dns_err:
+        phases.append(_phase_result("dns", "FAIL", dns_start, "dns_resolution_failed", dns_err, {"host": host}))
+        for phase in ("tcp", "tls", "auth", "api"):
+            _add_skipped(phases, phase, "blocked_by_dns")
+        summary = f"dns FAIL: {dns_err}"
+        return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
+    phases.append(_phase_result("dns", "PASS", dns_start, evidence={"host": host, "port": port, "resolved_ips": ips}))
 
-        # Functional: GET /metrics (Prometheus endpoint, no auth usually required)
-        metrics_path = env.get("UPTIME_KUMA_METRICS_PATH", "/metrics")
-        metrics_url = f"{kuma_url.rstrip('/')}{metrics_path}"
-        ok, status, body = api_probe("GET", metrics_url, timeout_seconds)
-        if ok:
-            details.append("metrics endpoint ok")
+    tcp_start = time.perf_counter()
+    tcp_ok, tcp_err, tcp_raw = _tcp_probe(host, port, timeout_seconds)
+    if not tcp_ok:
+        phases.append(_phase_result("tcp", "FAIL", tcp_start, tcp_err or "tcp_error", tcp_raw, {"host": host, "port": port, "resolved_ips": ips}))
+        for phase in ("tls", "auth", "api"):
+            _add_skipped(phases, phase, "blocked_by_tcp")
+        summary = f"tcp FAIL: {tcp_err}"
+        return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
+    phases.append(_phase_result("tcp", "PASS", tcp_start, evidence={"host": host, "port": port}))
+
+    tls_start = time.perf_counter()
+    is_tls = target.lower().startswith("https://") or port in {443, 8834, 55000, 3780}
+    if is_tls:
+        try:
+            ctx = ssl.create_default_context()
+            with socket.create_connection((host, port), timeout=timeout_seconds) as sock:
+                with ctx.wrap_socket(sock, server_hostname=host):
+                    pass
+            phases.append(_phase_result("tls", "PASS", tls_start, evidence={"host": host, "port": port}))
+        except ssl.SSLError as exc:
+            phases.append(_phase_result("tls", "FAIL", tls_start, "tls_handshake_failed", str(exc), {"host": host, "port": port}))
+            for phase in ("auth", "api"):
+                _add_skipped(phases, phase, "blocked_by_tls")
+            summary = f"tls FAIL: {exc}"
+            return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
+        except Exception as exc:
+            phases.append(_phase_result("tls", "FAIL", tls_start, "tls_handshake_failed", f"{type(exc).__name__}: {exc}", {"host": host, "port": port}))
+            for phase in ("auth", "api"):
+                _add_skipped(phases, phase, "blocked_by_tls")
+            summary = f"tls FAIL: {type(exc).__name__}"
+            return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
+    else:
+        phases.append(_phase_result("tls", "SKIPPED", tls_start, "non_tls_target"))
+
+    auth_start = time.perf_counter()
+    api_start = time.perf_counter()
+    auth_phase: dict[str, Any] | None = None
+    api_phase: dict[str, Any] | None = None
+    if spec.name == "wazuh":
+        auth_url = f"{env.get('WAZUH_API_HOST', '').rstrip('/')}/security/user/authenticate"
+        auth_probe = _http_probe_detailed("GET", auth_url, timeout_seconds, auth=(env.get("WAZUH_API_USER", ""), env.get("WAZUH_API_PASSWORD", "")))
+        if auth_probe["ok"]:
+            auth_phase = _phase_result("auth", "PASS", auth_start, evidence={"endpoint": auth_url, "http_status": auth_probe["status_code"]})
+            idx_url = f"{env.get('WAZUH_INDEXER_HOST', '').rstrip('/')}/_cluster/health"
+            idx_probe = _http_probe_detailed("GET", idx_url, timeout_seconds, auth=(env.get("WAZUH_INDEXER_USER", ""), env.get("WAZUH_INDEXER_PASSWORD", "")))
+            api_phase = _phase_result("api", "PASS" if idx_probe["ok"] else "FAIL", api_start, None if idx_probe["ok"] else f"http_{idx_probe['status_code'] or idx_probe['error_kind']}", idx_probe["body_preview"] or idx_probe["error_text"], {"endpoint": idx_url, "http_status": idx_probe["status_code"]})
         else:
-            details.append(f"metrics endpoint: HTTP {status}" if status else f"metrics failed: {body[:80]}")
-            # Metrics might require auth in some setups; TCP was ok so don't fail hard
-            details.append("(TCP ok, metrics probe inconclusive)")
+            auth_phase = _phase_result("auth", "FAIL", auth_start, f"http_{auth_probe['status_code']}" if auth_probe["status_code"] else (auth_probe["error_kind"] or "auth_error"), auth_probe["body_preview"] or auth_probe["error_text"], {"endpoint": auth_url, "http_status": auth_probe["status_code"]})
+            _add_skipped(phases, "api", "blocked_by_auth")
+    elif spec.name == "zabbix":
+        api_url = env.get("ZABBIX_API_URL", "")
+        login_body = {"jsonrpc": "2.0", "method": "user.login", "params": {"username": env.get("ZABBIX_USER", ""), "password": env.get("ZABBIX_PASS", "")}, "id": 2}
+        auth_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=login_body)
+        auth_ok = auth_probe["ok"] and '"error"' not in auth_probe["body_preview"]
+        auth_phase = _phase_result("auth", "PASS" if auth_ok else "FAIL", auth_start, None if auth_ok else f"http_{auth_probe['status_code'] or 'auth_error'}", auth_probe["body_preview"] or auth_probe["error_text"], {"endpoint": api_url, "http_status": auth_probe["status_code"]})
+        if auth_ok:
+            version_body = {"jsonrpc": "2.0", "method": "apiinfo.version", "params": {}, "id": 1}
+            version_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=version_body)
+            api_phase = _phase_result("api", "PASS" if version_probe["ok"] else "FAIL", api_start, None if version_probe["ok"] else f"http_{version_probe['status_code'] or version_probe['error_kind']}", version_probe["body_preview"] or version_probe["error_text"], {"endpoint": api_url, "http_status": version_probe["status_code"]})
+    elif spec.name == "openvas":
+        auth_phase = _phase_result("auth", "SKIPPED", auth_start, "gmp_tcp_only")
+        api_phase = _phase_result("api", "SKIPPED", api_start, "gmp_tcp_only")
+    elif spec.name == "insightvm":
+        info_url = f"{env.get('INSIGHTVM_BASE_URL', '').rstrip('/')}/administration/info"
+        probe = _http_probe_detailed("GET", info_url, timeout_seconds, auth=(env.get("INSIGHTVM_USER", ""), env.get("INSIGHTVM_PASSWORD", "")))
+        auth_ok = probe["ok"] or probe["status_code"] not in (401, 403)
+        auth_phase = _phase_result("auth", "PASS" if auth_ok else "FAIL", auth_start, None if auth_ok else f"http_{probe['status_code']}", probe["body_preview"] or probe["error_text"], {"endpoint": info_url, "http_status": probe["status_code"]})
+        api_phase = _phase_result("api", "PASS" if probe["ok"] else "FAIL", api_start, None if probe["ok"] else f"http_{probe['status_code'] or probe['error_kind']}", probe["body_preview"] or probe["error_text"], {"endpoint": info_url, "http_status": probe["status_code"]})
+    elif spec.name == "uptimekuma":
+        auth_phase = _phase_result("auth", "PASS", auth_start, evidence={"mode": "api_key_or_userpass_configured"})
+        metrics_url = f"{env.get('UPTIME_KUMA_URL', '').rstrip('/')}{env.get('UPTIME_KUMA_METRICS_PATH', '/metrics')}"
+        probe = _http_probe_detailed("GET", metrics_url, timeout_seconds)
+        api_phase = _phase_result("api", "PASS" if probe["ok"] else "FAIL", api_start, None if probe["ok"] else f"http_{probe['status_code'] or probe['error_kind']}", probe["body_preview"] or probe["error_text"], {"endpoint": metrics_url, "http_status": probe["status_code"]})
+    elif spec.name == "nessus":
+        props_url = f"{env.get('NESSUS_BASE_URL', '').rstrip('/')}/server/properties"
+        headers = {"X-ApiKeys": f"accessKey={env.get('NESSUS_ACCESS_KEY', '')}; secretKey={env.get('NESSUS_SECRET_KEY', '')}"}
+        probe = _http_probe_detailed("GET", props_url, timeout_seconds, headers=headers)
+        auth_ok = probe["ok"] or probe["status_code"] not in (401, 403)
+        auth_phase = _phase_result("auth", "PASS" if auth_ok else "FAIL", auth_start, None if auth_ok else f"http_{probe['status_code']}", probe["body_preview"] or probe["error_text"], {"endpoint": props_url, "http_status": probe["status_code"]})
+        status_url = f"{env.get('NESSUS_BASE_URL', '').rstrip('/')}/server/status"
+        status_probe = _http_probe_detailed("GET", status_url, timeout_seconds)
+        api_phase = _phase_result("api", "PASS" if status_probe["ok"] else "FAIL", api_start, None if status_probe["ok"] else f"http_{status_probe['status_code'] or status_probe['error_kind']}", status_probe["body_preview"] or status_probe["error_text"], {"endpoint": status_url, "http_status": status_probe["status_code"]})
+    elif spec.name == "backend":
+        auth_phase = _phase_result("auth", "SKIPPED", auth_start, "no_backend_auth_check")
+        ingest_url = first_nonempty([env.get("TXDXAI_INGEST_URL"), env.get("WEBHOOK_URL")])
+        probe = _http_probe_detailed("GET", ingest_url, timeout_seconds)
+        ok = probe["ok"] or probe["status_code"] in (401, 403, 405)
+        api_phase = _phase_result("api", "PASS" if ok else "FAIL", api_start, None if ok else f"http_{probe['status_code'] or probe['error_kind']}", probe["body_preview"] or probe["error_text"], {"endpoint": ingest_url, "http_status": probe["status_code"]})
+    else:
+        auth_phase = _phase_result("auth", "SKIPPED", auth_start, "no_precheck_implemented")
+        api_phase = _phase_result("api", "SKIPPED", api_start, "no_precheck_implemented")
 
-        return PrecheckResult("uptimekuma", True, True, " | ".join(details))
+    if auth_phase:
+        phases.append(auth_phase)
+    if api_phase:
+        phases.append(api_phase)
 
-    # ── Nessus ───────────────────────────────────────────────────
-    if spec.name == "nessus":
-        api_key = first_nonempty([env.get("TXDXAI_API_KEY_NESSUS"), env.get("TXDXAI_API_KEY"), env.get("API_KEY")])
-        base_url = env.get("NESSUS_BASE_URL", "")
-        access_key = env.get("NESSUS_ACCESS_KEY", "")
-        secret_key = env.get("NESSUS_SECRET_KEY", "")
-
-        missing = []
-        if not api_key:     missing.append("TXDXAI_API_KEY_NESSUS")
-        if not ingest_url:  missing.append("TXDXAI_INGEST_URL")
-        if not company_id:  missing.append("TXDXAI_COMPANY_ID")
-        if not base_url:    missing.append("NESSUS_BASE_URL")
-        if not access_key:  missing.append("NESSUS_ACCESS_KEY")
-        if not secret_key:  missing.append("NESSUS_SECRET_KEY")
-        if missing:
-            return PrecheckResult("nessus", True, False, f"missing env: {', '.join(missing)}")
-
-        details = []
-        conn_ok, tcp_detail = can_connect(base_url, 8834, timeout_seconds)
-        details.append(tcp_detail)
-        if not conn_ok:
-            return PrecheckResult("nessus", True, False, " | ".join(details))
-
-        # Functional: GET /server/status (no auth required)
-        status_url = f"{base_url.rstrip('/')}/server/status"
-        ok, status, body = api_probe("GET", status_url, timeout_seconds)
-        if ok:
-            details.append(f"server status ok ({body[:60]})")
-        else:
-            details.append(f"server status: HTTP {status}" if status else f"server status failed: {body[:80]}")
-
-        # Functional: GET /server/properties with API keys (validates credentials)
-        props_url = f"{base_url.rstrip('/')}/server/properties"
-        nessus_headers = {"X-ApiKeys": f"accessKey={access_key}; secretKey={secret_key}"}
-        ok, status, body = api_probe("GET", props_url, timeout_seconds, headers=nessus_headers)
-        if ok:
-            details.append("API keys valid")
-        elif status == 401 or status == 403:
-            details.append(f"API keys invalid: HTTP {status}")
-            return PrecheckResult("nessus", True, False, " | ".join(details))
-        else:
-            details.append(f"API keys probe: HTTP {status}" if status else f"API keys probe: {body[:80]}")
-
-        return PrecheckResult("nessus", True, True, " | ".join(details))
-
-    # ── Backend (TxDxAI Ingest) ──────────────────────────────────
-    if spec.name == "backend":
-        if not ingest_url:
-            return PrecheckResult("backend", False, False, "missing TXDXAI_INGEST_URL")
-        conn_ok, tcp_detail = can_connect(ingest_url, 443, timeout_seconds)
-        if not conn_ok:
-            return PrecheckResult("backend", False, False, f"backend {tcp_detail}")
-        ok, status, body = api_probe("GET", ingest_url, timeout_seconds)
-        if ok or status in (405, 401, 403):
-            # 405 = Method Not Allowed (POST-only endpoint responding to GET) → endpoint exists
-            return PrecheckResult("backend", False, True, f"backend reachable: HTTP {status}")
-        return PrecheckResult("backend", False, False, f"backend unreachable: HTTP {status} - {body[:80]}" if status else f"backend unreachable: {body[:80]}")
-
-    return PrecheckResult(spec.name, True, False, "no precheck implemented")
+    passed = all(phase["status"] in {"PASS", "SKIPPED"} for phase in phases)
+    failed_phase = next((phase for phase in phases if phase["status"] == "FAIL"), None)
+    summary = "precheck PASS"
+    if failed_phase:
+        summary = f"{failed_phase['phase']} FAIL: {failed_phase.get('normalized_error') or failed_phase.get('raw_error_excerpt') or ''}"
+    return PrecheckResult(spec.name, required, passed, summary, phases=phases, summary=summary)
 
 
-def resolve_startup_action(menu_enabled: bool, default_option: str) -> str:
+def run_agent_precheck(spec: AgentSpec, base_env: dict[str, str], timeout_seconds: float) -> PrecheckResult:
+    return run_agent_precheck_diagnostic(spec, base_env, timeout_seconds)
+
+
+def resolve_startup_action(menu_enabled: bool, default_option: str, selected_agents: list[str]) -> tuple[str, str]:
     if not menu_enabled:
-        return "run_and_continue"
+        return "run_and_continue", "selected"
 
     log("")
     log("Startup Menu (MAD)")
-    log("1) Run integration tests and continue (recommended)")
-    log("2) Run integration tests and exit")
-    log("3) Skip integration tests and continue")
+    log("1) Ejecutar pruebas (agentes seleccionados) + iniciar todos los agentes seleccionados (recomendado)")
+    log("2) Ejecutar pruebas (agentes seleccionados) y salir")
+    log("3) Omitir pruebas e iniciar todos los agentes seleccionados")
+    log("4) Ejecutar pruebas de UNA integración + iniciar todos los agentes seleccionados")
+    log("5) Ejecutar pruebas de UNA integración y salir")
 
     if not sys.stdin or not sys.stdin.isatty():
         log(f"No interactive console detected; using default option {default_option}")
@@ -445,12 +509,31 @@ def resolve_startup_action(menu_enabled: bool, default_option: str) -> str:
         "1": "run_and_continue",
         "2": "run_and_exit",
         "3": "skip_and_continue",
+        "4": "run_one_and_continue",
+        "5": "run_one_and_exit",
     }
     action = mapping.get(choice)
     if action is None:
         log(f"Invalid menu option '{choice}'; using default option {default_option}")
         action = mapping.get(default_option, "run_and_continue")
-    return action
+
+    test_target = "selected"
+    if action in {"run_one_and_continue", "run_one_and_exit"}:
+        if not sys.stdin or not sys.stdin.isatty():
+            test_target = selected_agents[0]
+            log(f"No se detectó consola interactiva; usando la primera integración seleccionada para pruebas: {test_target}")
+        else:
+            log("Integraciones disponibles para modo de prueba única: " + ", ".join(selected_agents))
+            try:
+                raw_target = input(f"Integración a probar [{selected_agents[0]}]: ").strip().lower()
+            except Exception:
+                raw_target = ""
+            test_target = raw_target or selected_agents[0]
+            if test_target not in selected_agents:
+                log(f"Integración inválida '{test_target}', usando valor por defecto {selected_agents[0]}")
+                test_target = selected_agents[0]
+
+    return action, test_target
 
 
 def log_precheck_results(results: list[PrecheckResult]) -> tuple[int, int, list[PrecheckResult]]:
@@ -476,6 +559,89 @@ def command_default(script_path: str) -> Callable[[str, dict[str, str]], list[st
     return _builder
 
 
+def detect_placeholder_env(env: dict[str, str]) -> list[str]:
+    placeholder_tokens = ("your_", "changeme", "example", "replace_me", "<", ">")
+    flagged: list[str] = []
+    for key, value in env.items():
+        key_u = key.upper()
+        if not any(tok in key_u for tok in ("KEY", "TOKEN", "PASS", "PASSWORD", "USER", "URL", "HOST")):
+            continue
+        val = (value or "").strip()
+        low = val.lower()
+        if not val:
+            continue
+        if any(token in low for token in placeholder_tokens):
+            flagged.append(key)
+    return flagged
+
+
+def sanitize_text(text: str, env: dict[str, str]) -> str:
+    sanitized = text or ""
+    sensitive_pattern = re.compile(r"(KEY|TOKEN|PASS|PASSWORD|SECRET|AUTHORIZATION|X-APIKEYS)", re.IGNORECASE)
+    sensitive_values = []
+    for key, value in env.items():
+        if not value:
+            continue
+        if sensitive_pattern.search(key):
+            sensitive_values.append(value)
+    sensitive_values.extend(re.findall(r"(?i)authorization\s*:\s*[^\r\n]+", sanitized))
+    sensitive_values.extend(re.findall(r"(?i)x-apikeys\s*:\s*[^\r\n]+", sanitized))
+    for value in sorted(set(sensitive_values), key=len, reverse=True):
+        if len(value) >= 4:
+            sanitized = sanitized.replace(value, "***REDACTED***")
+    sanitized = re.sub(r"(?i)(authorization\s*:\s*)([^\r\n]+)", r"\1***REDACTED***", sanitized)
+    sanitized = re.sub(r"(?i)(x-apikeys\s*:\s*)([^\r\n]+)", r"\1***REDACTED***", sanitized)
+    return sanitized
+
+
+def classify_phase_from_details(details: str) -> str:
+    low = (details or "").lower()
+    if "env fail" in low or "missing_env" in low or "placeholder_env" in low:
+        return "env"
+    if "dns fail" in low or "dns_" in low or "invalid_host" in low:
+        return "dns"
+    if "tcp fail" in low or "timeout" in low or "refused" in low or "unreachable" in low:
+        return "tcp"
+    if "tls fail" in low or "tls_" in low:
+        return "tls"
+    if "auth" in low:
+        return "auth"
+    if "api" in low or "http_" in low:
+        return "api"
+    return "execution"
+
+
+def command_once_or_none(spec: AgentSpec, python_exec: str, env: dict[str, str]) -> tuple[list[str] | None, str]:
+    """
+    Build a one-shot command for diagnostics.
+    Returns (command, reason_if_none).
+    """
+    if spec.name == "nessus":
+        return [python_exec, str(ROOT / "nessus_integration/agent.py"), "--once"], ""
+    if spec.name == "uptimekuma":
+        return [python_exec, str(ROOT / "uptimekuma_integration/agent.py"), "--once"], ""
+    if spec.name == "insightvm":
+        return [
+            python_exec,
+            str(ROOT / "insightVM_integration/main.py"),
+            "--env",
+            str(ROOT / ".env"),
+            "--output",
+            "security_data.json",
+            "--normalized-output",
+            "security_data_normalized.json",
+            "--interval",
+            "0",
+        ], ""
+    if spec.name == "zabbix":
+        return [python_exec, str(ROOT / "zabix_integration/agent.py"), "--once"], ""
+    if spec.name == "openvas":
+        return [python_exec, str(ROOT / "openVAS_integration/main.py"), "--once"], ""
+    if spec.name == "wazuh":
+        return [python_exec, str(ROOT / "wazuh_integration/main.py"), "--once"], ""
+    return None, "single-run command not implemented"
+
+
 def command_insightvm(python_exec: str, env: dict[str, str]) -> list[str]:
     interval = env.get("INSIGHTVM_INTERVAL_SECONDS", "600")
     return [
@@ -490,6 +656,208 @@ def command_insightvm(python_exec: str, env: dict[str, str]) -> list[str]:
         "--interval",
         interval,
     ]
+
+
+def run_single_run_diagnostics(
+    selected_specs: list[AgentSpec],
+    base_env: dict[str, str],
+    python_exec: str,
+    timeout_seconds: float,
+    target_scope: str = "selected",
+) -> tuple[list[DiagnosticExecResult], Path]:
+    started_perf = time.perf_counter()
+    started_at = now()
+    diag_root = ROOT / "runtime" / "diagnostics" / time.strftime("%Y%m%d_%H%M%S")
+    diag_root.mkdir(parents=True, exist_ok=True)
+
+    def env_snapshot_for(spec_env: dict[str, str]) -> dict[str, str]:
+        relevant: dict[str, str] = {}
+        for k, v in spec_env.items():
+            key_u = k.upper()
+            if any(tok in key_u for tok in ("TXDXAI", "WAZUH", "ZABBIX", "OPENVAS", "GVM", "INSIGHTVM", "UPTIME", "NESSUS", "API", "HOST", "URL", "USER", "PASS", "TOKEN", "SECRET", "KEY", "COMPANY")):
+                relevant[k] = "***REDACTED***" if v else ""
+        return relevant
+
+    results: list[DiagnosticExecResult] = []
+    env_snapshots: dict[str, dict[str, str]] = {}
+    for spec in selected_specs:
+        env = spec.build_env(base_env)
+        env_snapshots[spec.name] = env_snapshot_for(env)
+        precheck = run_agent_precheck_diagnostic(spec, base_env, timeout_seconds=5.0)
+        command, reason = command_once_or_none(spec, python_exec, env)
+        log_file_path = diag_root / f"{spec.name}.log"
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(f"PRECHECK SUMMARY: {sanitize_text(precheck.summary, env)}\n")
+            f.write(json.dumps({"phases": precheck.phases}, ensure_ascii=False, indent=2))
+            f.write("\n\n")
+
+        if command is None:
+            result = DiagnosticExecResult(
+                name=spec.name,
+                status="SKIPPED",
+                phase="execution",
+                details=reason,
+                raw_error_excerpt=reason,
+                return_code=None,
+                log_file=str(log_file_path),
+                phases=precheck.phases + [{"phase": "execution", "status": "SKIPPED", "duration_ms": 0, "normalized_error": "single_run_not_implemented", "raw_error_excerpt": reason, "evidence": {}}],
+                summary=precheck.summary,
+            )
+            with open(log_file_path, "a", encoding="utf-8") as f:
+                f.write(f"SKIPPED: {sanitize_text(reason, env)}\n")
+            results.append(result)
+            log(f"[DIAG] {spec.name}: SKIPPED ({reason})")
+            continue
+
+        if not precheck.passed:
+            failed_phase = next((p for p in precheck.phases if p.get("status") == "FAIL"), None)
+            phase = failed_phase.get("phase", "precheck") if failed_phase else classify_phase_from_details(precheck.details)
+            raw_excerpt = sanitize_text(precheck.details, env)
+            results.append(
+                DiagnosticExecResult(
+                    name=spec.name,
+                    status="FAIL",
+                    phase=phase,
+                    details=precheck.details,
+                    raw_error_excerpt=raw_excerpt,
+                    return_code=None,
+                    log_file=str(log_file_path),
+                    phases=precheck.phases + [{"phase": "execution", "status": "SKIPPED", "duration_ms": 0, "normalized_error": "blocked_by_precheck", "raw_error_excerpt": raw_excerpt[:200], "evidence": {}}],
+                    summary=precheck.summary,
+                )
+            )
+            with open(log_file_path, "a", encoding="utf-8") as f:
+                f.write("PRECHECK FAILED. EXECUTION SKIPPED.\n")
+            log(f"[DIAG] {spec.name}: FAIL ({phase})")
+            continue
+
+        run_dir_path = ROOT / spec.run_dir if spec.run_dir else ROOT
+        run_dir_path.mkdir(parents=True, exist_ok=True)
+        log(f"[DIAG] Running single-run for {spec.name}: {' '.join(command)}")
+        execution_start = time.perf_counter()
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=str(run_dir_path),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout_seconds,
+                check=False,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            output_raw = completed.stdout or ""
+            output_sanitized = sanitize_text(output_raw, env)
+            with open(log_file_path, "a", encoding="utf-8") as lf:
+                lf.write(f"COMMAND: {' '.join(command)}\n")
+                lf.write(f"WORKDIR: {run_dir_path}\n\n")
+                lf.write(output_sanitized)
+            status = "PASS" if completed.returncode == 0 else "FAIL"
+            details = f"completed with return code {completed.returncode}"
+            phase = "send" if status == "PASS" else "execution"
+            raw_excerpt = output_sanitized[-600:] if output_sanitized else ""
+            execution_phase = _phase_result(
+                "execution",
+                "PASS" if completed.returncode == 0 else "FAIL",
+                execution_start,
+                None if completed.returncode == 0 else f"return_code_{completed.returncode}",
+                raw_excerpt,
+                {"command": command, "workdir": str(run_dir_path), "return_code": completed.returncode},
+            )
+            results.append(
+                DiagnosticExecResult(
+                    name=spec.name,
+                    status=status,
+                    phase=phase,
+                    details=details,
+                    raw_error_excerpt=raw_excerpt,
+                    return_code=completed.returncode,
+                    log_file=str(log_file_path),
+                    phases=precheck.phases + [execution_phase],
+                    summary=f"{precheck.summary} | execution {status}",
+                )
+            )
+            log(f"[DIAG] {spec.name}: {status} ({details})")
+        except subprocess.TimeoutExpired:
+            raw_timeout = f"TIMEOUT after {timeout_seconds}s"
+            with open(log_file_path, "a", encoding="utf-8") as lf:
+                lf.write(f"\nTIMEOUT after {timeout_seconds}s\n")
+            execution_phase = _phase_result(
+                "execution",
+                "FAIL",
+                execution_start,
+                "timeout",
+                raw_timeout,
+                {"command": command, "workdir": str(run_dir_path)},
+            )
+            results.append(
+                DiagnosticExecResult(
+                    name=spec.name,
+                    status="FAIL",
+                    phase="execution",
+                    details=f"timeout after {timeout_seconds}s",
+                    raw_error_excerpt=raw_timeout,
+                    return_code=None,
+                    log_file=str(log_file_path),
+                    phases=precheck.phases + [execution_phase],
+                    summary=f"{precheck.summary} | execution FAIL",
+                )
+            )
+            log(f"[DIAG] {spec.name}: FAIL (timeout after {timeout_seconds}s)")
+        except Exception as exc:
+            raw_exc = sanitize_text(f"{type(exc).__name__}: {exc}", env)
+            with open(log_file_path, "a", encoding="utf-8") as lf:
+                lf.write(f"\nERROR: {raw_exc}\n")
+            execution_phase = _phase_result(
+                "execution",
+                "FAIL",
+                execution_start,
+                "execution_error",
+                raw_exc,
+                {"command": command, "workdir": str(run_dir_path)},
+            )
+            results.append(
+                DiagnosticExecResult(
+                    name=spec.name,
+                    status="FAIL",
+                    phase="execution",
+                    details=f"execution error: {type(exc).__name__}: {exc}",
+                    raw_error_excerpt=raw_exc,
+                    return_code=None,
+                    log_file=str(log_file_path),
+                    phases=precheck.phases + [execution_phase],
+                    summary=f"{precheck.summary} | execution FAIL",
+                )
+            )
+            log(f"[DIAG] {spec.name}: FAIL (execution error)")
+
+    report_payload = {
+        "started_at": started_at,
+        "finished_at": now(),
+        "total_duration_ms": int((time.perf_counter() - started_perf) * 1000),
+        "target_scope": target_scope,
+        "env_snapshot_sanitized": env_snapshots,
+        "results": [
+            {
+                "name": r.name,
+                "status": r.status,
+                "phase": r.phase,
+                "details": r.details,
+                "raw_error_excerpt": r.raw_error_excerpt,
+                "return_code": r.return_code,
+                "log_file": r.log_file,
+                "phases": r.phases,
+                "summary": r.summary,
+            }
+            for r in results
+        ],
+    }
+    report_path = diag_root / "diagnostic_report.json"
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report_payload, f, ensure_ascii=False, indent=2)
+    return results, diag_root
 
 
 AGENTS: list[AgentSpec] = [
@@ -590,43 +958,59 @@ def stop_process(name: str, process: subprocess.Popen, timeout_seconds: int = 20
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MAD all-in-one orchestrator")
+    parser = argparse.ArgumentParser(description="Orquestador MAD todo-en-uno")
     parser.add_argument(
         "--agents",
         default=os.getenv("MAD_AGENTS", "all"),
-        help="Comma-separated list (e.g. wazuh,zabbix) or 'all'",
+        help="Lista separada por comas (ej. wazuh,zabbix) o 'all'",
     )
     parser.add_argument(
         "--restart-on-failure",
         default=os.getenv("MAD_RESTART_ON_FAILURE", "true"),
-        help="true/false: restart child when it exits unexpectedly",
+        help="true/false: reiniciar proceso hijo cuando termine inesperadamente",
     )
     parser.add_argument(
         "--restart-delay-seconds",
         type=int,
         default=int(os.getenv("MAD_RESTART_DELAY_SECONDS", "5")),
-        help="Delay before restarting a failed child process",
+        help="Espera antes de reiniciar un proceso hijo fallido",
     )
     parser.add_argument(
         "--startup-menu-enabled",
         default=os.getenv("MAD_STARTUP_MENU_ENABLED", "true"),
-        help="true/false: show global startup menu",
+        help="true/false: mostrar menú global de arranque",
     )
     parser.add_argument(
         "--startup-menu-default-option",
         default=os.getenv("MAD_STARTUP_MENU_DEFAULT_OPTION", "1"),
-        help="Default menu option when non-interactive (1/2/3)",
+        help="Opción por defecto del menú en modo no interactivo (1/2/3/4/5)",
     )
     parser.add_argument(
         "--startup-require-all-tests",
         default=os.getenv("MAD_STARTUP_REQUIRE_ALL_TESTS", "true"),
-        help="true/false: abort start if any required precheck fails",
+        help="true/false: abortar arranque si falla cualquier precheck requerido",
     )
     parser.add_argument(
         "--startup-test-timeout-seconds",
         type=float,
         default=float(os.getenv("MAD_STARTUP_TEST_TIMEOUT_SECONDS", "3")),
-        help="TCP timeout for connectivity checks per integration",
+        help="Timeout TCP para checks de conectividad por integración",
+    )
+    parser.add_argument(
+        "--startup-test-target",
+        default=os.getenv("MAD_STARTUP_TEST_TARGET", "selected"),
+        help="selected|all|<integración>|lista separada por comas. Usado al ejecutar pruebas de arranque.",
+    )
+    parser.add_argument(
+        "--diagnostic-single-run",
+        default=os.getenv("MAD_DIAGNOSTIC_SINGLE_RUN", "false"),
+        help="true/false: después de los prechecks, ejecutar diagnóstico one-shot por integración seleccionada/probada",
+    )
+    parser.add_argument(
+        "--diagnostic-timeout-seconds",
+        type=float,
+        default=float(os.getenv("MAD_DIAGNOSTIC_TIMEOUT_SECONDS", "180")),
+        help="timeout para cada comando de diagnóstico one-shot",
     )
     args = parser.parse_args()
 
@@ -642,6 +1026,7 @@ def main() -> None:
     restart_on_failure = parse_bool(args.restart_on_failure, default=True)
     menu_enabled = parse_bool(args.startup_menu_enabled, default=True)
     require_all_tests = parse_bool(args.startup_require_all_tests, default=True)
+    diagnostic_single_run = parse_bool(args.diagnostic_single_run, default=False)
     available = [agent.name for agent in AGENTS]
     selected_names = parse_agents(args.agents, available)
 
@@ -664,19 +1049,54 @@ def main() -> None:
     log(f"Selected agents: {', '.join(spec.name for spec in selected_specs)}")
     log(f"Restart on failure: {restart_on_failure}")
 
-    action = resolve_startup_action(menu_enabled=menu_enabled, default_option=args.startup_menu_default_option)
+    action, menu_test_target = resolve_startup_action(
+        menu_enabled=menu_enabled,
+        default_option=args.startup_menu_default_option,
+        selected_agents=[spec.name for spec in selected_specs],
+    )
+    test_specs: list[AgentSpec] = []
     if action != "skip_and_continue":
-        results = [run_agent_precheck(spec, base_env, timeout_seconds=args.startup_test_timeout_seconds) for spec in selected_specs]
+        if action in {"run_one_and_continue", "run_one_and_exit"}:
+            effective_target_raw = menu_test_target
+        else:
+            effective_target_raw = args.startup_test_target
+
+        test_target_names = parse_test_targets(
+            effective_target_raw,
+            selected=[spec.name for spec in selected_specs],
+            available=[agent.name for agent in AGENTS],
+        )
+        test_specs = [spec for spec in AGENTS if spec.name in test_target_names]
+        log("Startup tests target: " + ", ".join(spec.name for spec in test_specs))
+
+        results = [run_agent_precheck(spec, base_env, timeout_seconds=args.startup_test_timeout_seconds) for spec in test_specs]
         # Also test backend connectivity (non-required, won't block startup)
         backend_spec = AgentSpec(name="backend", command_builder=lambda p, e: [], env_map={})
         results.append(run_agent_precheck(backend_spec, base_env, timeout_seconds=args.startup_test_timeout_seconds))
         _, _, failed_required = log_precheck_results(results)
 
-        if action == "run_and_exit":
+        if action in {"run_and_exit", "run_one_and_exit"}:
             raise SystemExit(0 if not failed_required else 1)
 
         if require_all_tests and failed_required:
             raise SystemExit("Startup aborted because required integration tests failed.")
+
+    if diagnostic_single_run:
+        diag_specs = test_specs if test_specs else selected_specs
+        log("")
+        log("Running diagnostic single-run execution...")
+        diag_results, diag_dir = run_single_run_diagnostics(
+            selected_specs=diag_specs,
+            base_env=base_env,
+            python_exec=python_exec,
+            timeout_seconds=args.diagnostic_timeout_seconds,
+            target_scope=args.startup_test_target,
+        )
+        pass_count = sum(1 for r in diag_results if r.status == "PASS")
+        fail_count = sum(1 for r in diag_results if r.status == "FAIL")
+        skip_count = sum(1 for r in diag_results if r.status == "SKIPPED")
+        log(f"Diagnostic single-run summary: PASS={pass_count} FAIL={fail_count} SKIPPED={skip_count}")
+        log(f"Diagnostic artifacts: {diag_dir}")
 
     process_table: dict[str, tuple[subprocess.Popen, AgentSpec]] = {}
     stopping = False

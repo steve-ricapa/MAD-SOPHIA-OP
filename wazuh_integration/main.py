@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import os
 import sys
@@ -270,7 +271,7 @@ async def retry_failed_payloads(sender, app_cfg):
         await asyncio.sleep(int(app_cfg["retry_failed_interval_seconds"]))
 
 
-async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg):
+async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg, single_run=False):
     """Loop to fetch, deduplicate, archive and send alerts."""
     empty_cycles = 0
     max_empty_cycles = max(1, int(app_cfg["heartbeat_cycles"]))
@@ -408,9 +409,12 @@ async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, a
         except Exception as e:
             logger.exception(f"Error in poll_alerts loop: {e}")
 
+        if single_run:
+            logger.info("Single-run mode: poll_alerts completed one cycle.")
+            break
         await asyncio.sleep(int(app_cfg["poll_interval_alerts"]))
 
-async def poll_agents(api, aggregator, state):
+async def poll_agents(api, aggregator, state, single_run=False):
     """Loop to fetch agent status updates and detect changes."""
     while True:
         try:
@@ -450,6 +454,9 @@ async def poll_agents(api, aggregator, state):
         except Exception as e:
             logger.error("Error in poll_agents loop: {}", e)
             
+        if single_run:
+            logger.info("Single-run mode: poll_agents completed one cycle.")
+            break
         await asyncio.sleep(int(os.getenv("POLL_INTERVAL_AGENTS", 60)))
 
 from aiohttp import web
@@ -461,6 +468,10 @@ async def healthcheck_handler(request):
 
 
 async def main():
+    parser = argparse.ArgumentParser(description="Wazuh real-time integration agent")
+    parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    args = parser.parse_args()
+
     load_dotenv()
 
     company_id = int(os.getenv("TXDXAI_COMPANY_ID", 0))
@@ -595,12 +606,18 @@ async def main():
     )
 
     try:
-        await asyncio.gather(
-            site.start(),
-            poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg),
-            poll_agents(api, aggregator, state),
-            retry_failed_payloads(sender, app_cfg),
-        )
+        if args.once:
+            await site.start()
+            await poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg, single_run=True)
+            await poll_agents(api, aggregator, state, single_run=True)
+            logger.info("Single-run mode completed. Exiting.")
+        else:
+            await asyncio.gather(
+                site.start(),
+                poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg),
+                poll_agents(api, aggregator, state),
+                retry_failed_payloads(sender, app_cfg),
+            )
     finally:
         if indexer is not None:
             await indexer.close()

@@ -2,6 +2,7 @@ import json
 import os
 import time
 import uuid
+import argparse
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, Tuple, Optional
@@ -51,7 +52,14 @@ def compute_time_from(state: Dict[str, Any], hours_fallback: int) -> Tuple[int, 
         return int(last), now
     return now - hours_fallback * 3600, now
 
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Zabbix real-time integration agent")
+    parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    return parser.parse_args()
+
 def main():
+    args = parse_args()
     print("[INFO] Starting Zabbix Real-time Agent...")
     print(ZABBIX_BANNER)
     cfg = load_config()
@@ -131,6 +139,10 @@ def main():
             print(f"[INFO] Retrying in {cfg.backoff_seconds} seconds...")
             time.sleep(cfg.backoff_seconds)
             continue
+
+        if args.once:
+            print("[INFO] Single-run mode completed. Exiting.")
+            break
 
         time.sleep(cfg.interval)
 
