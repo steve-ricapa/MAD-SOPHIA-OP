@@ -26,9 +26,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 ROOT = Path(__file__).resolve().parent
 
-# Branch-local override for troubleshooting false negatives in startup tests.
-# When enabled, orchestrator startup prechecks are skipped and agents run directly.
-DISABLE_STARTUP_PRECHECKS = True
+# Branch-local toggle: run startup tests for visibility, but do not block execution.
+NON_BLOCKING_STARTUP_TESTS = True
 
 
 def now() -> str:
@@ -1091,25 +1090,20 @@ def main() -> None:
             available=[agent.name for agent in AGENTS],
         )
         test_specs = [spec for spec in AGENTS if spec.name in test_target_names]
-        if DISABLE_STARTUP_PRECHECKS:
-            log("Startup tests target: " + ", ".join(spec.name for spec in test_specs))
-            log("Startup prechecks are disabled in this branch; skipping integration tests.")
-            if action in {"run_and_exit", "run_one_and_exit"} and not diagnostic_single_run:
-                raise SystemExit(0)
-        else:
-            log("Startup tests target: " + ", ".join(spec.name for spec in test_specs))
+        log("Startup tests target: " + ", ".join(spec.name for spec in test_specs))
 
-            results = [run_agent_precheck(spec, base_env, timeout_seconds=args.startup_test_timeout_seconds) for spec in test_specs]
-            # Also test backend connectivity (non-required, won't block startup)
-            backend_spec = AgentSpec(name="backend", command_builder=lambda p, e: [], env_map={})
-            results.append(run_agent_precheck(backend_spec, base_env, timeout_seconds=args.startup_test_timeout_seconds))
-            _, _, failed_required = log_precheck_results(results)
+        results = [run_agent_precheck(spec, base_env, timeout_seconds=args.startup_test_timeout_seconds) for spec in test_specs]
+        # Also test backend connectivity (non-required, won't block startup)
+        backend_spec = AgentSpec(name="backend", command_builder=lambda p, e: [], env_map={})
+        results.append(run_agent_precheck(backend_spec, base_env, timeout_seconds=args.startup_test_timeout_seconds))
+        _, _, failed_required = log_precheck_results(results)
 
-            if action in {"run_and_exit", "run_one_and_exit"}:
-                raise SystemExit(0 if not failed_required else 1)
+        # Keep legacy behavior when not in diagnostic mode.
+        if action in {"run_and_exit", "run_one_and_exit"} and not diagnostic_single_run:
+            raise SystemExit(0 if not failed_required else 1)
 
-            if require_all_tests and failed_required:
-                raise SystemExit("Startup aborted because required integration tests failed.")
+        if require_all_tests and failed_required and not NON_BLOCKING_STARTUP_TESTS:
+            raise SystemExit("Startup aborted because required integration tests failed.")
 
     if diagnostic_single_run:
         diag_specs = test_specs if test_specs else selected_specs
@@ -1121,13 +1115,15 @@ def main() -> None:
             python_exec=python_exec,
             timeout_seconds=args.diagnostic_timeout_seconds,
             target_scope=args.startup_test_target,
-            perform_precheck=not DISABLE_STARTUP_PRECHECKS,
+            perform_precheck=True,
         )
         pass_count = sum(1 for r in diag_results if r.status == "PASS")
         fail_count = sum(1 for r in diag_results if r.status == "FAIL")
         skip_count = sum(1 for r in diag_results if r.status == "SKIPPED")
         log(f"Diagnostic single-run summary: PASS={pass_count} FAIL={fail_count} SKIPPED={skip_count}")
         log(f"Diagnostic artifacts: {diag_dir}")
+        if action in {"run_and_exit", "run_one_and_exit"}:
+            raise SystemExit(0)
 
     process_table: dict[str, tuple[subprocess.Popen, AgentSpec]] = {}
     stopping = False
