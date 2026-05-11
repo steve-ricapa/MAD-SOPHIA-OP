@@ -5,6 +5,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
+from datetime import datetime, timezone
 
 import requests
 
@@ -17,6 +18,46 @@ class PermanentDeliveryError(RuntimeError):
 
 class TransientDeliveryError(RuntimeError):
     pass
+
+
+def _payload_debug_enabled() -> bool:
+    return (os.getenv("UPTIME_PAYLOAD_DEBUG", "false").strip().lower() in {"1", "true", "yes", "y", "on"})
+
+
+def _collect_string_lengths(node: Any, path: str = "") -> Dict[str, int]:
+    out: Dict[str, int] = {}
+    if isinstance(node, dict):
+        for k, v in node.items():
+            out.update(_collect_string_lengths(v, f"{path}.{k}" if path else str(k)))
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            out.update(_collect_string_lengths(v, f"{path}[{i}]"))
+    elif isinstance(node, str):
+        out[path or "$"] = len(node)
+    return out
+
+
+def _save_payload_debug(payload: Dict[str, Any], status_code: Optional[int], response_text: str, error_text: str = "") -> None:
+    if not _payload_debug_enabled():
+        return
+    debug_dir = Path(os.getenv("UPTIME_PAYLOAD_DEBUG_DIR", "runtime/payload_debug/uptimekuma"))
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    scan_id = str(payload.get("scan_id") or payload.get("scanId") or "no_scan_id")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    base = f"{stamp}_{scan_id}_{uuid.uuid4().hex[:8]}".replace("/", "_").replace("\\", "_").replace(" ", "_")
+    lengths = _collect_string_lengths(payload)
+    top = sorted(lengths.items(), key=lambda kv: kv[1], reverse=True)[:40]
+    meta = {
+        "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+        "status_code": status_code,
+        "response_excerpt": (response_text or "")[:1000],
+        "error_text": (error_text or "")[:1000],
+        "max_string_length": max(lengths.values()) if lengths else 0,
+        "strings_over_255": [{"path": k, "length": v} for k, v in top if v > 255],
+        "top_string_lengths": [{"path": k, "length": v} for k, v in top],
+    }
+    write_json(debug_dir / f"payload_{base}.json", payload)
+    write_json(debug_dir / f"meta_{base}.json", meta)
 
 
 def write_json(path: str | Path, data: Any) -> None:
@@ -70,6 +111,7 @@ def send_webhook(
                 timeout=timeout,
                 verify=verify_ssl,
             )
+            _save_payload_debug(payload, response.status_code, response.text or "")
 
             if 200 <= response.status_code < 300:
                 return
@@ -95,6 +137,7 @@ def send_webhook(
         except PermanentDeliveryError:
             raise
         except requests.RequestException as exc:
+            _save_payload_debug(payload, None, "", str(exc))
             last_error = exc
             if attempt < max_attempts:
                 wait_for = _backoff_with_jitter(backoff_seconds, attempt)

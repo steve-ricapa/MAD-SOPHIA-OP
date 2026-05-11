@@ -1,5 +1,10 @@
 import aiohttp
 import asyncio
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 from loguru import logger
 
 class Sender:
@@ -33,6 +38,50 @@ class Sender:
 
     def is_last_failure_retryable(self):
         return self.last_failure_kind in {"network", "transient_http"}
+
+    @staticmethod
+    def _payload_debug_enabled():
+        return os.getenv("WAZUH_PAYLOAD_DEBUG", "false").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    @staticmethod
+    def _collect_string_lengths(node, path=""):
+        out = {}
+        if isinstance(node, dict):
+            for k, v in node.items():
+                out.update(Sender._collect_string_lengths(v, f"{path}.{k}" if path else str(k)))
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                out.update(Sender._collect_string_lengths(v, f"{path}[{i}]"))
+        elif isinstance(node, str):
+            out[path or "$"] = len(node)
+        return out
+
+    @staticmethod
+    def _save_payload_debug(report, status_code, response_text="", error_text=""):
+        if not isinstance(report, dict):
+            return
+        if not Sender._payload_debug_enabled():
+            return
+        debug_dir = Path(os.getenv("WAZUH_PAYLOAD_DEBUG_DIR", "runtime/payload_debug/wazuh"))
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        scan_id = str(report.get("scan_id") or report.get("scanId") or "no_scan_id")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        base = f"{stamp}_{scan_id}_{uuid4().hex[:8]}".replace("/", "_").replace("\\", "_").replace(" ", "_")
+        lengths = Sender._collect_string_lengths(report)
+        top = sorted(lengths.items(), key=lambda kv: kv[1], reverse=True)[:40]
+        meta = {
+            "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+            "status_code": status_code,
+            "response_excerpt": (response_text or "")[:1000],
+            "error_text": (error_text or "")[:1000],
+            "max_string_length": max(lengths.values()) if lengths else 0,
+            "strings_over_255": [{"path": k, "length": v} for k, v in top if v > 255],
+            "top_string_lengths": [{"path": k, "length": v} for k, v in top],
+        }
+        with open(debug_dir / f"payload_{base}.json", "w", encoding="utf-8") as pf:
+            json.dump(report, pf, ensure_ascii=False, indent=2)
+        with open(debug_dir / f"meta_{base}.json", "w", encoding="utf-8") as mf:
+            json.dump(meta, mf, ensure_ascii=False, indent=2)
 
     async def probe_endpoint(self, api_key=None, timeout_seconds=10):
         """Quick non-invasive endpoint check used by startup prechecks."""
@@ -102,6 +151,7 @@ class Sender:
                         error_body = await resp.text()
                         self.last_status_code = resp.status
                         self.last_error_body = error_body
+                        self._save_payload_debug(report, resp.status, error_body, "")
 
                         if resp.status in [200, 201]:
                             self.last_failure_kind = None
@@ -141,6 +191,7 @@ class Sender:
                     self.last_failure_kind = "network"
                     self.last_error_body = str(e)
                     self.last_status_code = None
+                    self._save_payload_debug(report, None, "", str(e))
                     wait = 2 ** attempt
                     logger.error(
                         "Connection failed | attempt={}/{} | retry_in={}s | error={}",

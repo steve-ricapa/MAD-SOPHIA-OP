@@ -4,6 +4,8 @@ import time
 import requests
 from pathlib import Path
 from typing import Optional, Any, Dict
+from datetime import datetime, timezone
+from uuid import uuid4
 
 
 def write_json(path: str | Path, data: Any) -> None:
@@ -19,6 +21,47 @@ def send_stdout(data: Any) -> None:
         print(json.dumps(data, indent=2, ensure_ascii=False))
     else:
         print(data)
+
+
+def _payload_debug_enabled() -> bool:
+    return (os.getenv("ZABBIX_PAYLOAD_DEBUG", "false").strip().lower() in {"1", "true", "yes", "y", "on"})
+
+
+def _collect_string_lengths(node: Any, path: str = "") -> Dict[str, int]:
+    out: Dict[str, int] = {}
+    if isinstance(node, dict):
+        for k, v in node.items():
+            next_path = f"{path}.{k}" if path else str(k)
+            out.update(_collect_string_lengths(v, next_path))
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            out.update(_collect_string_lengths(v, f"{path}[{i}]"))
+    elif isinstance(node, str):
+        out[path or "$"] = len(node)
+    return out
+
+
+def _save_payload_debug(payload: Dict[str, Any], status_code: Optional[int], response_text: str, error_text: str = "") -> None:
+    if not _payload_debug_enabled():
+        return
+    debug_dir = Path(os.getenv("ZABBIX_PAYLOAD_DEBUG_DIR", "runtime/payload_debug/zabbix"))
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    scan_id = str(payload.get("scan_id") or payload.get("scanId") or "no_scan_id")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    base = f"{stamp}_{scan_id}_{uuid4().hex[:8]}".replace("/", "_").replace("\\", "_").replace(" ", "_")
+    lengths = _collect_string_lengths(payload)
+    top = sorted(lengths.items(), key=lambda kv: kv[1], reverse=True)[:40]
+    meta = {
+        "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+        "status_code": status_code,
+        "response_excerpt": (response_text or "")[:1000],
+        "error_text": (error_text or "")[:1000],
+        "max_string_length": max(lengths.values()) if lengths else 0,
+        "strings_over_255": [{"path": k, "length": v} for k, v in top if v > 255],
+        "top_string_lengths": [{"path": k, "length": v} for k, v in top],
+    }
+    write_json(debug_dir / f"payload_{base}.json", payload)
+    write_json(debug_dir / f"meta_{base}.json", meta)
 
 def send_webhook(
     webhook_url: str,
@@ -36,11 +79,13 @@ def send_webhook(
     for attempt in range(1, max(retries, 1) + 1):
         try:
             r = requests.post(webhook_url, json=payload, headers=headers, timeout=timeout)
+            _save_payload_debug(payload, r.status_code, r.text or "")
             if r.status_code >= 400:
                 print(f"[ERROR] Webhook rejected ({r.status_code}): {r.text}")
             r.raise_for_status()
             return
         except Exception as e:
+            _save_payload_debug(payload, None, "", str(e))
             last_error = e
             print(f"[WARN] Delivery attempt {attempt}/{max(retries, 1)} failed: {str(e)}")
             if attempt < max(retries, 1):

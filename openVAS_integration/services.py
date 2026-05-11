@@ -1,8 +1,11 @@
-import json
+﻿import json
 import os
 import time
 import traceback
 from typing import Any, Optional
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 
 try:
     from defusedxml import ElementTree as SafeET  # type: ignore
@@ -27,6 +30,69 @@ def _bool_env(name: str, default: bool = False) -> bool:
 DEBUG = _bool_env("DEBUG", False)
 
 
+def _collect_string_lengths(payload: Any) -> dict[str, int]:
+    lengths: dict[str, int] = {}
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                next_path = f"{path}.{k}" if path else str(k)
+                walk(v, next_path)
+            return
+        if isinstance(node, list):
+            for idx, v in enumerate(node):
+                walk(v, f"{path}[{idx}]")
+            return
+        if isinstance(node, str):
+            lengths[path or "$"] = len(node)
+
+    walk(payload, "")
+    return lengths
+
+
+def _save_payload_debug(
+    payload: dict[str, Any],
+    status_code: int | None,
+    response_excerpt: str,
+    error_text: str | None = None,
+) -> None:
+    if not _bool_env("OPENVAS_PAYLOAD_DEBUG", False):
+        return
+
+    base_dir = os.getenv("OPENVAS_PAYLOAD_DEBUG_DIR", "").strip() or "runtime/payload_debug/openvas"
+    out_dir = Path(base_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    scan_id = str(payload.get("scan_id") or payload.get("scanId") or "no_scan_id")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    suffix = uuid4().hex[:8]
+    base_name = f"{stamp}_{scan_id}_{suffix}".replace("/", "_").replace("\\", "_").replace(" ", "_")
+
+    payload_path = out_dir / f"payload_{base_name}.json"
+    meta_path = out_dir / f"meta_{base_name}.json"
+
+    string_lengths = _collect_string_lengths(payload)
+    top_lengths = sorted(string_lengths.items(), key=lambda kv: kv[1], reverse=True)[:40]
+    over_255 = [{"path": k, "length": v} for k, v in top_lengths if v > 255]
+
+    meta = {
+        "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+        "status_code": status_code,
+        "response_excerpt": (response_excerpt or "")[:1000],
+        "error_text": (error_text or "")[:1000],
+        "scan_id": scan_id,
+        "payload_bytes": len(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+        "max_string_length": max(string_lengths.values()) if string_lengths else 0,
+        "top_string_lengths": [{"path": k, "length": v} for k, v in top_lengths],
+        "strings_over_255": over_255,
+    }
+
+    with open(payload_path, "w", encoding="utf-8") as pf:
+        json.dump(payload, pf, ensure_ascii=False, indent=2)
+    with open(meta_path, "w", encoding="utf-8") as mf:
+        json.dump(meta, mf, ensure_ascii=False, indent=2)
+
+
 def _root_cause(e: BaseException) -> str:
     if getattr(e, "__cause__", None) is not None:
         c = e.__cause__
@@ -45,7 +111,7 @@ def format_exception(step: str, e: BaseException, context: Optional[dict[str, An
 
     rc = _root_cause(e)
     if rc:
-        parts.append(f"Causa raíz: {rc}")
+        parts.append(f"Causa raÃ­z: {rc}")
 
     if context:
         parts.append("Contexto:")
@@ -146,6 +212,7 @@ def load_state(path: str) -> dict[str, Any]:
         print(format_exception(step, e, {"path": path, "accion": "estado reiniciado"}))
         return {"sent": {}}
     except Exception as e:
+        _save_payload_debug(payload, None, "", str(e))
         print(format_exception(step, e, {"path": path, "accion": "estado reiniciado"}))
         return {"sent": {}}
 
@@ -180,6 +247,7 @@ def save_state(path: str, data: dict[str, Any]) -> None:
         os.replace(tmp, path)
 
     except Exception as e:
+        _save_payload_debug(payload, None, "", str(e))
         print(format_exception(step, e, {"path": path, "tmp": tmp}))
         raise
     finally:
@@ -200,8 +268,8 @@ def purge_sent(
     Limpia el mapa de reportes ya enviados:
       sent_map = { report_id: unix_ts }
 
-    - max_age_days: elimina entradas más viejas que N días (si ts>0)
-    - max_items: si hay demasiadas, conserva solo las más recientes
+    - max_age_days: elimina entradas mÃ¡s viejas que N dÃ­as (si ts>0)
+    - max_items: si hay demasiadas, conserva solo las mÃ¡s recientes
 
     Retorna dict[str,int] limpio.
     """
@@ -238,6 +306,7 @@ def purge_sent(
         return cleaned
 
     except Exception as e:
+        _save_payload_debug(payload, None, "", str(e))
         print(format_exception(step, e, {"max_age_days": max_age_days, "max_items": max_items}))
         try:
             return {str(k): int(v) for k, v in (sent_map or {}).items() if k is not None}
@@ -258,23 +327,23 @@ def _clip(s: str, n: int) -> str:
 
 def _clean_text(text: str) -> str:
     """
-    Elimina etiquetas HTML residuales, saltos de línea innecesarios (\n) 
-    y espacios dobles para legibilidad en producción.
+    Elimina etiquetas HTML residuales, saltos de lÃ­nea innecesarios (\n) 
+    y espacios dobles para legibilidad en producciÃ³n.
     """
     if not text:
         return ""
     import re
-    # 1. Eliminar etiquetas HTML/XML (con mayor precisión)
+    # 1. Eliminar etiquetas HTML/XML (con mayor precisiÃ³n)
     text = re.sub(r"<[^>]+>", " ", text)
-    # 2. Reemplazar saltos de línea y tabulaciones con espacios
+    # 2. Reemplazar saltos de lÃ­nea y tabulaciones con espacios
     text = text.replace("\n", " ").replace("\r", " ").replace("\t", " ")
-    # 3. Colapsar espacios múltiples a uno solo
+    # 3. Colapsar espacios mÃºltiples a uno solo
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
 def get_severity_label(cvss_score: float) -> str:
-    """Normaliza el string de severidad según el estándar del proyecto."""
+    """Normaliza el string de severidad segÃºn el estÃ¡ndar del proyecto."""
     s = float(cvss_score)
     if s >= 9.0:
         return "critical"
@@ -289,12 +358,12 @@ def get_severity_label(cvss_score: float) -> str:
 
 def _parse_xml(xml_text: str, max_kb: int) -> Any:
     if not isinstance(xml_text, str) or not xml_text:
-        raise ValueError("XML vacío o no str")
+        raise ValueError("XML vacÃ­o o no str")
 
     max_bytes = int(max_kb) * 1024
     size = len(xml_text.encode("utf-8", errors="ignore"))
     if size > max_bytes:
-        raise ValueError(f"XML excede límite: {size} bytes > {max_bytes} bytes")
+        raise ValueError(f"XML excede lÃ­mite: {size} bytes > {max_bytes} bytes")
 
     ET = SafeET if SafeET is not None else StdET
     root = ET.fromstring(xml_text)  # type: ignore
@@ -366,6 +435,7 @@ def extract_severities(xml_text: str, max_kb: int = 256) -> dict[str, int]:
         print(format_exception(step, e, {"hint": "XML mal formado"}))
         raise
     except Exception as e:
+        _save_payload_debug(payload, None, "", str(e))
         print(format_exception(step, e, {"max_kb": max_kb}))
         raise
 
@@ -391,7 +461,7 @@ def extract_report_stats(xml_text: str, max_kb: int = 4096) -> dict[str, int]:
 def _extract_severity_from_result(r: Any) -> float:
     """
     Preferimos el severity del <result>.
-    Si viene vacío, intentamos fallback a NVT severities/value.
+    Si viene vacÃ­o, intentamos fallback a NVT severities/value.
     """
     sev = _safe_float(r.findtext("severity", "") or "", 0.0)
     if sev > 0.0:
@@ -467,7 +537,7 @@ def extract_findings(
             description_raw = (nvt.findtext("description", "") or "").strip() if nvt is not None else ""
             summary_raw = (nvt.findtext("summary", "") or "").strip() if nvt is not None else ""
             
-            # Si description está vacío, usamos summary como fallback
+            # Si description estÃ¡ vacÃ­o, usamos summary como fallback
             raw_desc = description_raw if description_raw else summary_raw
             final_desc = _clean_text(raw_desc) or "No description available"
             
@@ -495,7 +565,7 @@ def extract_findings(
                 "host": host,
                 "port": port_val,
                 "protocol": protocol,
-                "description": final_desc,  # Quitamos clip para no truncar info crítica según prompt
+                "description": final_desc,  # Quitamos clip para no truncar info crÃ­tica segÃºn prompt
                 "solution": final_solution,
                 "impact": final_impact,
             }
@@ -541,12 +611,12 @@ def emit_payload(
             return True
 
         if not url:
-            raise ValueError("TXDXAI_INGEST_URL vacío")
+            raise ValueError("TXDXAI_INGEST_URL vacÃ­o")
 
         if require_https and not url.startswith("https://"):
             raise ValueError("Backend URL debe ser HTTPS (o usa OUTPUT_MODE=console)")
 
-        # ✅ Estandarización a snake_case según requerimiento
+        # âœ… EstandarizaciÃ³n a snake_case segÃºn requerimiento
         if isinstance(payload, dict):
             payload = dict(payload)  # copia para no mutar original
             if api_key:
@@ -556,7 +626,7 @@ def emit_payload(
 
         headers = {"Content-Type": "application/json"}
 
-        # Fallbacks: por si backend también acepta header
+        # Fallbacks: por si backend tambiÃ©n acepta header
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
             headers["X-API-Key"] = api_key
@@ -575,26 +645,32 @@ def emit_payload(
             timeout=timeout,
             verify=tls_verify,
         )
+        _save_payload_debug(payload, r.status_code, (r.text or "")[:1000])
 
         if 200 <= r.status_code < 300:
             print(f"[{_now()}] OK backend ({r.status_code})")
             return True
 
         snippet = (r.text or "")[:300]
-        raise RuntimeError(f"Backend rechazó: HTTP {r.status_code}. Respuesta: {snippet}")
+        raise RuntimeError(f"Backend rechazÃ³: HTTP {r.status_code}. Respuesta: {snippet}")
 
     except requests.exceptions.SSLError as e:
+        _save_payload_debug(payload, None, "", str(e))
         print(format_exception(step, e, {"url": url, "tls_verify": tls_verify, "hint": "TLS/certificados"}))
         return False
     except requests.exceptions.ConnectionError as e:
+        _save_payload_debug(payload, None, "", str(e))
         print(format_exception(step, e, {"url": url, "hint": "DNS/ruta/firewall"}))
         return False
     except requests.exceptions.Timeout as e:
-        print(format_exception(step, e, {"url": url, "timeout": timeout, "hint": "Backend lento/caído"}))
+        _save_payload_debug(payload, None, "", str(e))
+        print(format_exception(step, e, {"url": url, "timeout": timeout, "hint": "Backend lento/caÃ­do"}))
         return False
     except requests.exceptions.RequestException as e:
-        print(format_exception(step, e, {"url": url, "hint": "Error HTTP genérico"}))
+        _save_payload_debug(payload, None, "", str(e))
+        print(format_exception(step, e, {"url": url, "hint": "Error HTTP genÃ©rico"}))
         return False
     except Exception as e:
+        _save_payload_debug(payload, None, "", str(e))
         print(format_exception(step, e, {"mode": mode, "url": url}))
         return False
