@@ -16,7 +16,7 @@ from config import (
     OUTPUT_MODE, TXDXAI_INGEST_URL, TXDXAI_COMPANY_ID, TXDXAI_API_KEY,
     COLLECTOR, POLL_SECONDS, STATE_PATH, META_MAX_KB,
     GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD, GVM_SOCKET,
-    GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_TIMEOUT,
+    GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_USE_TLS, GVM_TIMEOUT,
     DEBUG, MAX_ERROR_REPEAT, DETAIL_LEVEL, TOP_N, REPORT_MAX_KB, FINDING_TEXT_MAX,
     STATE_TTL_DAYS, STATE_MAX_ITEMS,
     validate_config,
@@ -339,6 +339,7 @@ while True:
                     cafile=GVM_TLS_CAFILE,
                     certfile=GVM_TLS_CERTFILE,
                     keyfile=GVM_TLS_KEYFILE,
+                    use_tls=GVM_USE_TLS,
                     timeout=GVM_TIMEOUT,
                 ) as client:
                     tasks_xml = client.get_tasks()

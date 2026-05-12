@@ -49,6 +49,7 @@ GVM_SOCKET = _env("GVM_SOCKET", "") or ""
 GVM_TLS_CAFILE  = _env("GVM_TLS_CAFILE", "") or ""
 GVM_TLS_CERTFILE = _env("GVM_TLS_CERTFILE", "") or ""
 GVM_TLS_KEYFILE  = _env("GVM_TLS_KEYFILE", "") or ""
+GVM_USE_TLS = _env_bool("GVM_USE_TLS", True)
 GVM_TIMEOUT = _env_int("GVM_TIMEOUT", 30)
 
 DETAIL_LEVEL = (_env("OPENVAS_DETAIL_LEVEL", _env("DETAIL_LEVEL", "findings")) or "findings").strip().lower()
