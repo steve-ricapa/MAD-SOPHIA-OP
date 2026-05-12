@@ -54,7 +54,7 @@ GVM_USE_TLS = _env_bool("GVM_USE_TLS", True)
 GVM_TIMEOUT = _env_int("GVM_TIMEOUT", 30)
 
 if not GVM_TRANSPORT:
-    GVM_TRANSPORT = "unix" if GVM_SOCKET else ("tls" if GVM_USE_TLS else "unix")
+    GVM_TRANSPORT = "unix" if GVM_SOCKET else "tls"
 
 DETAIL_LEVEL = (_env("OPENVAS_DETAIL_LEVEL", _env("DETAIL_LEVEL", "findings")) or "findings").strip().lower()
 TOP_N = _env_int("OPENVAS_TOP_N", _env_int("TOP_N", 50))
