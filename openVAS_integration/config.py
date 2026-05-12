@@ -52,9 +52,12 @@ GVM_TLS_CERTFILE = _env("GVM_TLS_CERTFILE", "") or ""
 GVM_TLS_KEYFILE  = _env("GVM_TLS_KEYFILE", "") or ""
 GVM_USE_TLS = _env_bool("GVM_USE_TLS", True)
 GVM_TIMEOUT = _env_int("GVM_TIMEOUT", 30)
+GVM_ALLOW_PLAIN_TCP = _env_bool("GVM_ALLOW_PLAIN_TCP", False)
 
 if not GVM_TRANSPORT:
     GVM_TRANSPORT = "unix" if GVM_SOCKET else "tls"
+if GVM_TRANSPORT == "tcp":
+    GVM_TRANSPORT = "plain"
 
 DETAIL_LEVEL = (_env("OPENVAS_DETAIL_LEVEL", _env("DETAIL_LEVEL", "findings")) or "findings").strip().lower()
 TOP_N = _env_int("OPENVAS_TOP_N", _env_int("TOP_N", 50))
@@ -89,14 +92,16 @@ def validate_config() -> None:
     if not (1 <= GVM_PORT <= 65535):
         raise ValueError("GVM_PORT fuera de rango 1..65535")
 
-    if GVM_TRANSPORT not in {"unix", "tls"}:
-        raise ValueError("GVM_TRANSPORT inválido: usa 'unix' o 'tls'")
+    if GVM_TRANSPORT not in {"unix", "tls", "plain"}:
+        raise ValueError("GVM_TRANSPORT inválido: usa 'unix', 'tls' o 'plain'")
 
     if COLLECTOR == "gmp":
         if GVM_TRANSPORT == "unix" and not GVM_SOCKET:
             raise ValueError("COLLECTOR=gmp y GVM_TRANSPORT=unix requiere GVM_SOCKET")
-        if GVM_TRANSPORT == "tls" and not GVM_HOST:
-            raise ValueError("COLLECTOR=gmp y GVM_TRANSPORT=tls requiere GVM_HOST")
+        if GVM_TRANSPORT in {"tls", "plain"} and not GVM_HOST:
+            raise ValueError("COLLECTOR=gmp y GVM_TRANSPORT=tls/plain requiere GVM_HOST")
+        if GVM_TRANSPORT == "plain" and not GVM_ALLOW_PLAIN_TCP:
+            raise ValueError("GVM_TRANSPORT=plain requiere GVM_ALLOW_PLAIN_TCP=true")
         if not GVM_PASSWORD:
             raise ValueError("COLLECTOR=gmp requiere GVM_PASSWORD no vacío")
 

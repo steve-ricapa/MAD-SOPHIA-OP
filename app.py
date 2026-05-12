@@ -10,10 +10,12 @@ import ssl
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
+from xml.sax.saxutils import escape
 
 import requests
 import urllib3
@@ -283,6 +285,61 @@ def _add_skipped(phases: list[dict[str, Any]], phase: str, reason: str) -> None:
     phases.append({"phase": phase, "status": "SKIPPED", "duration_ms": 0, "normalized_error": reason, "raw_error_excerpt": reason[:200], "evidence": {}})
 
 
+def _normalize_tls_failure(exc: Exception) -> str:
+    low = f"{type(exc).__name__}: {exc}".lower()
+    if any(token in low for token in ("unexpected eof while reading", "eof occurred in violation of protocol", "wrong version number", "unknown protocol")):
+        return "non_tls_target"
+    if "certificate verify failed" in low:
+        return "tls_cert_validation_failed"
+    if "hostname" in low and "match" in low:
+        return "tls_hostname_mismatch"
+    return "tls_handshake_failed"
+
+
+def _preview_text(value: Any, limit: int = 160) -> str:
+    text = str(value) if value is not None else ""
+    return text[:limit]
+
+
+def _normalize_openvas_transport(raw_transport: str, socket_path: str) -> str:
+    transport = (raw_transport or "").strip().lower()
+    if transport == "tcp":
+        transport = "plain"
+    if not transport:
+        transport = "unix" if (socket_path or "").strip() else "tls"
+    return transport
+
+
+def _read_until_gmp_response(sock: socket.socket, response_tag: str, timeout_seconds: float) -> str:
+    sock.settimeout(timeout_seconds)
+    data = b""
+    closing_tag = f"</{response_tag}>"
+    self_closing = re.compile(rf"<{response_tag}\\b[^>]*/>")
+
+    while True:
+        chunk = sock.recv(65535)
+        if not chunk:
+            break
+        data += chunk
+        text = data.decode("utf-8", errors="replace")
+        if closing_tag in text or self_closing.search(text):
+            return text
+    return data.decode("utf-8", errors="replace")
+
+
+def _send_plain_gmp(sock: socket.socket, xml_request: str, expected_response: str, timeout_seconds: float) -> str:
+    sock.sendall(xml_request.encode("utf-8"))
+    return _read_until_gmp_response(sock, expected_response, timeout_seconds)
+
+
+def _gmp_status(xml_text: str) -> tuple[str | None, str | None]:
+    try:
+        root = ET.fromstring(xml_text)
+        return root.attrib.get("status"), root.attrib.get("status_text")
+    except Exception:
+        return None, None
+
+
 def _detect_critical_execution_error(output_text: str) -> tuple[bool, str | None]:
     text = (output_text or "")
     low = text.lower()
@@ -324,20 +381,24 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
     if spec.name == "openvas":
         output_mode = (env.get("OPENVAS_OUTPUT_MODE") or env.get("OUTPUT_MODE") or "").strip().lower()
         collector = (env.get("OPENVAS_COLLECTOR") or env.get("COLLECTOR") or "").strip().lower()
-        transport = (env.get("GVM_TRANSPORT") or "").strip().lower()
-        if not transport:
-            transport = "unix" if (env.get("GVM_SOCKET") or "").strip() else "tls"
+        transport = _normalize_openvas_transport(env.get("GVM_TRANSPORT") or "", env.get("GVM_SOCKET") or "")
         if output_mode not in {"console", "http"}:
             missing.append("OPENVAS_OUTPUT_MODE")
         if collector not in {"gmp", "simulated"}:
             missing.append("OPENVAS_COLLECTOR")
-        if transport not in {"unix", "tls"}:
-            missing.append("GVM_TRANSPORT(unix|tls)")
+        if transport not in {"unix", "tls", "plain"}:
+            missing.append("GVM_TRANSPORT(unix|tls|plain)")
         if collector == "gmp":
             if transport == "unix" and not (env.get("GVM_SOCKET") or "").strip():
                 missing.append("GVM_SOCKET")
-            if transport == "tls" and not (env.get("GVM_HOST") or "").strip():
+            if transport in {"tls", "plain"} and not (env.get("GVM_HOST") or "").strip():
                 missing.append("GVM_HOST")
+            if transport == "plain" and not parse_bool(env.get("GVM_ALLOW_PLAIN_TCP"), default=False):
+                missing.append("GVM_ALLOW_PLAIN_TCP(true)")
+            if not (env.get("GVM_USERNAME") or env.get("GVM_USER") or "").strip():
+                missing.append("GVM_USERNAME")
+            if not (env.get("GVM_PASSWORD") or env.get("GVM_PASS") or "").strip():
+                missing.append("GVM_PASSWORD")
     if spec.name == "uptimekuma":
         has_auth = bool(env.get("UPTIME_KUMA_API_KEY")) or (bool(env.get("UPTIME_KUMA_USERNAME")) and bool(env.get("UPTIME_KUMA_PASSWORD")))
         if not has_auth:
@@ -361,9 +422,7 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
         target = env.get("ZABBIX_API_URL", "")
         default_port = 80
     elif spec.name == "openvas":
-        transport = (env.get("GVM_TRANSPORT") or "").strip().lower()
-        if not transport:
-            transport = "unix" if (env.get("GVM_SOCKET") or "").strip() else "tls"
+        transport = _normalize_openvas_transport(env.get("GVM_TRANSPORT") or "", env.get("GVM_SOCKET") or "")
         if transport == "unix":
             target = ""
             default_port = 0
@@ -395,9 +454,7 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
         return PrecheckResult(spec.name, required, True, summary, phases=phases, summary=summary)
 
     if spec.name == "openvas":
-        transport = (env.get("GVM_TRANSPORT") or "").strip().lower()
-        if not transport:
-            transport = "unix" if (env.get("GVM_SOCKET") or "").strip() else "tls"
+        transport = _normalize_openvas_transport(env.get("GVM_TRANSPORT") or "", env.get("GVM_SOCKET") or "")
         if transport == "unix":
             socket_path = (env.get("GVM_SOCKET") or "").strip()
             if not socket_path:
@@ -450,28 +507,56 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
     phases.append(_phase_result("tcp", "PASS", tcp_start, evidence={"host": host, "port": port}))
 
     tls_start = time.perf_counter()
-    is_tls = target.lower().startswith("https://") or port in {443, 8834, 55000, 3780}
+    openvas_transport = ""
+    if spec.name == "openvas":
+        openvas_transport = _normalize_openvas_transport(env.get("GVM_TRANSPORT") or "", env.get("GVM_SOCKET") or "")
+    is_tls = (spec.name == "openvas" and openvas_transport == "tls") or target.lower().startswith("https://") or port in {443, 8834, 55000, 3780}
     if is_tls:
         try:
-            ctx = ssl.create_default_context()
+            if spec.name == "openvas":
+                cafile = first_nonempty([env.get("GVM_TLS_CAFILE"), env.get("GVM_CA_FILE")])
+                if cafile:
+                    ctx = ssl.create_default_context(cafile=cafile)
+                else:
+                    ctx = ssl._create_unverified_context()
+            else:
+                ctx = ssl.create_default_context()
             with socket.create_connection((host, port), timeout=timeout_seconds) as sock:
                 with ctx.wrap_socket(sock, server_hostname=host):
                     pass
-            phases.append(_phase_result("tls", "PASS", tls_start, evidence={"host": host, "port": port}))
+            evidence = {"host": host, "port": port}
+            if spec.name == "openvas":
+                evidence["transport"] = openvas_transport
+                evidence["cafile_configured"] = bool(first_nonempty([env.get("GVM_TLS_CAFILE"), env.get("GVM_CA_FILE")]))
+                evidence["cert_validation"] = "ca" if evidence["cafile_configured"] else "skipped_no_ca"
+            phases.append(_phase_result("tls", "PASS", tls_start, evidence=evidence))
         except ssl.SSLError as exc:
-            phases.append(_phase_result("tls", "FAIL", tls_start, "tls_handshake_failed", str(exc), {"host": host, "port": port}))
+            normalized_error = _normalize_tls_failure(exc)
+            evidence = {"host": host, "port": port}
+            if spec.name == "openvas" and normalized_error == "non_tls_target":
+                normalized_error = "endpoint_tcp_reachable_but_tls_not_validated"
+                evidence["next_action"] = "validate_gmp_tls_listener_or_change_transport"
+            phases.append(_phase_result("tls", "FAIL", tls_start, normalized_error, str(exc), evidence))
             for phase in ("auth", "api"):
                 _add_skipped(phases, phase, "blocked_by_tls")
             summary = f"tls FAIL: {exc}"
             return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
         except Exception as exc:
-            phases.append(_phase_result("tls", "FAIL", tls_start, "tls_handshake_failed", f"{type(exc).__name__}: {exc}", {"host": host, "port": port}))
+            normalized_error = _normalize_tls_failure(exc)
+            evidence = {"host": host, "port": port}
+            if spec.name == "openvas" and normalized_error == "non_tls_target":
+                normalized_error = "endpoint_tcp_reachable_but_tls_not_validated"
+                evidence["next_action"] = "validate_gmp_tls_listener_or_change_transport"
+            phases.append(_phase_result("tls", "FAIL", tls_start, normalized_error, f"{type(exc).__name__}: {exc}", evidence))
             for phase in ("auth", "api"):
                 _add_skipped(phases, phase, "blocked_by_tls")
             summary = f"tls FAIL: {type(exc).__name__}"
             return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
     else:
-        phases.append(_phase_result("tls", "SKIPPED", tls_start, "non_tls_target"))
+        if spec.name == "openvas" and openvas_transport == "plain":
+            phases.append(_phase_result("tls", "SKIPPED", tls_start, "plain_tcp_transport", evidence={"transport": "plain"}))
+        else:
+            phases.append(_phase_result("tls", "SKIPPED", tls_start, "non_tls_target"))
 
     auth_start = time.perf_counter()
     api_start = time.perf_counter()
@@ -499,8 +584,254 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
             version_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=version_body)
             api_phase = _phase_result("api", "PASS" if version_probe["ok"] else "FAIL", api_start, None if version_probe["ok"] else f"http_{version_probe['status_code'] or version_probe['error_kind']}", version_probe["body_preview"] or version_probe["error_text"], {"endpoint": api_url, "http_status": version_probe["status_code"]})
     elif spec.name == "openvas":
-        auth_phase = _phase_result("auth", "SKIPPED", auth_start, "gmp_tcp_only")
-        api_phase = _phase_result("api", "SKIPPED", api_start, "gmp_tcp_only")
+        transport = _normalize_openvas_transport(env.get("GVM_TRANSPORT") or "", env.get("GVM_SOCKET") or "")
+        if transport == "unix":
+            auth_phase = _phase_result("auth", "SKIPPED", auth_start, "gmp_unix_socket")
+            api_phase = _phase_result("api", "SKIPPED", api_start, "gmp_unix_socket")
+        else:
+            gmp_user = (env.get("GVM_USERNAME") or env.get("GVM_USER") or "").strip()
+            gmp_password = (env.get("GVM_PASSWORD") or env.get("GVM_PASS") or "").strip()
+            report_probe_id = (env.get("OPENVAS_PRECHECK_REPORT_ID") or "").strip()
+            try:
+                gmp_timeout = float((env.get("GVM_TIMEOUT") or "30").strip())
+            except ValueError:
+                gmp_timeout = 30.0
+            if gmp_timeout <= 0:
+                gmp_timeout = 30.0
+
+            if transport == "plain":
+                try:
+                    with socket.create_connection((host, int(port)), timeout=min(timeout_seconds, gmp_timeout)) as gmp_sock:
+                        version_xml = _send_plain_gmp(gmp_sock, "<get_version/>", "get_version_response", gmp_timeout)
+                        version_status, version_text = _gmp_status(version_xml)
+                        if version_status != "200":
+                            auth_phase = _phase_result(
+                                "auth",
+                                "FAIL",
+                                auth_start,
+                                "gmp_get_version_failed",
+                                _preview_text(version_xml),
+                                {"host": host, "port": port, "transport": "plain", "status": version_status, "status_text": version_text},
+                            )
+                            _add_skipped(phases, "api", "blocked_by_gmp_version")
+                        else:
+                            auth_xml = (
+                                "<authenticate><credentials>"
+                                f"<username>{escape(gmp_user)}</username>"
+                                f"<password>{escape(gmp_password)}</password>"
+                                "</credentials></authenticate>"
+                            )
+                            auth_xml_response = _send_plain_gmp(gmp_sock, auth_xml, "authenticate_response", gmp_timeout)
+                            auth_status, auth_status_text = _gmp_status(auth_xml_response)
+                            if auth_status != "200":
+                                auth_phase = _phase_result(
+                                    "auth",
+                                    "FAIL",
+                                    auth_start,
+                                    "gmp_plain_auth_failed",
+                                    _preview_text(auth_xml_response),
+                                    {"host": host, "port": port, "transport": "plain", "status": auth_status, "status_text": auth_status_text},
+                                )
+                                _add_skipped(phases, "api", "blocked_by_auth")
+                            else:
+                                auth_phase = _phase_result(
+                                    "auth",
+                                    "PASS",
+                                    auth_start,
+                                    evidence={
+                                        "host": host,
+                                        "port": port,
+                                        "transport": "plain",
+                                        "gmp_version_preview": _preview_text(version_xml),
+                                    },
+                                )
+                                tasks_xml = _send_plain_gmp(gmp_sock, "<get_tasks/>", "get_tasks_response", gmp_timeout)
+                                tasks_status, tasks_status_text = _gmp_status(tasks_xml)
+                                if tasks_status != "200":
+                                    api_phase = _phase_result(
+                                        "api",
+                                        "FAIL",
+                                        api_start,
+                                        "gmp_plain_get_tasks_failed",
+                                        _preview_text(tasks_xml),
+                                        {"host": host, "port": port, "transport": "plain", "status": tasks_status, "status_text": tasks_status_text},
+                                    )
+                                else:
+                                    api_evidence = {
+                                        "host": host,
+                                        "port": port,
+                                        "transport": "plain",
+                                        "get_tasks_preview": _preview_text(tasks_xml),
+                                        "report_probe_enabled": bool(report_probe_id),
+                                    }
+                                    if report_probe_id:
+                                        report_xml = _send_plain_gmp(
+                                            gmp_sock,
+                                            f"<get_report report_id=\"{escape(report_probe_id)}\" details=\"1\"/>",
+                                            "get_report_response",
+                                            gmp_timeout,
+                                        )
+                                        report_status, report_status_text = _gmp_status(report_xml)
+                                        if report_status != "200":
+                                            api_phase = _phase_result(
+                                                "api",
+                                                "FAIL",
+                                                api_start,
+                                                "gmp_get_report_failed",
+                                                _preview_text(report_xml),
+                                                {"host": host, "port": port, "transport": "plain", "status": report_status, "status_text": report_status_text},
+                                            )
+                                        else:
+                                            api_evidence["report_probe_id"] = report_probe_id
+                                            api_evidence["get_report_probe"] = "PASS"
+                                            api_phase = _phase_result("api", "PASS", api_start, evidence=api_evidence)
+                                    else:
+                                        api_phase = _phase_result("api", "PASS", api_start, evidence=api_evidence)
+                except Exception as exc:
+                    if auth_phase is None:
+                        auth_phase = _phase_result(
+                            "auth",
+                            "FAIL",
+                            auth_start,
+                            "gmp_plain_connection_failed",
+                            f"{type(exc).__name__}: {exc}",
+                            {"host": host, "port": port, "transport": "plain"},
+                        )
+                        _add_skipped(phases, "api", "blocked_by_gmp_connection")
+                    elif api_phase is None:
+                        api_phase = _phase_result(
+                            "api",
+                            "FAIL",
+                            api_start,
+                            "gmp_plain_protocol_error",
+                            f"{type(exc).__name__}: {exc}",
+                            {"host": host, "port": port, "transport": "plain"},
+                        )
+            else:
+                gmp_kwargs: dict[str, Any] = {"hostname": host, "port": int(port), "timeout": int(gmp_timeout)}
+                gmp_cafile = first_nonempty([env.get("GVM_TLS_CAFILE"), env.get("GVM_CA_FILE")])
+                gmp_certfile = first_nonempty([env.get("GVM_TLS_CERTFILE"), env.get("GVM_CERT_FILE")])
+                gmp_keyfile = first_nonempty([env.get("GVM_TLS_KEYFILE"), env.get("GVM_KEY_FILE")])
+                if gmp_cafile:
+                    gmp_kwargs["cafile"] = gmp_cafile
+                if gmp_certfile:
+                    gmp_kwargs["certfile"] = gmp_certfile
+                if gmp_keyfile:
+                    gmp_kwargs["keyfile"] = gmp_keyfile
+
+                try:
+                    from gvm.connections import TLSConnection  # type: ignore
+                    from gvm.protocols.gmp import GMP  # type: ignore
+
+                    with GMP(connection=TLSConnection(**gmp_kwargs)) as gmp:  # type: ignore[arg-type]
+                        try:
+                            gmp_version = gmp.get_version()
+                        except Exception as exc:
+                            auth_phase = _phase_result(
+                                "auth",
+                                "FAIL",
+                                auth_start,
+                                "gmp_get_version_failed",
+                                f"{type(exc).__name__}: {exc}",
+                                {"host": host, "port": port, "transport": "tls"},
+                            )
+                            _add_skipped(phases, "api", "blocked_by_gmp_version")
+                        else:
+                            try:
+                                gmp.authenticate(gmp_user, gmp_password)
+                            except Exception as exc:
+                                auth_phase = _phase_result(
+                                    "auth",
+                                    "FAIL",
+                                    auth_start,
+                                    "gmp_auth_failed",
+                                    f"{type(exc).__name__}: {exc}",
+                                    {
+                                        "host": host,
+                                        "port": port,
+                                        "transport": "tls",
+                                        "gmp_version_preview": _preview_text(gmp_version),
+                                    },
+                                )
+                                _add_skipped(phases, "api", "blocked_by_auth")
+                            else:
+                                auth_phase = _phase_result(
+                                    "auth",
+                                    "PASS",
+                                    auth_start,
+                                    evidence={
+                                        "host": host,
+                                        "port": port,
+                                        "transport": "tls",
+                                        "gmp_version_preview": _preview_text(gmp_version),
+                                    },
+                                )
+                                try:
+                                    try:
+                                        gmp_tasks = gmp.get_tasks(ignore_pagination=True)
+                                    except TypeError:
+                                        gmp_tasks = gmp.get_tasks()
+                                    api_evidence = {
+                                        "host": host,
+                                        "port": port,
+                                        "transport": "tls",
+                                        "get_tasks_preview": _preview_text(gmp_tasks),
+                                        "report_probe_enabled": bool(report_probe_id),
+                                    }
+                                    if report_probe_id:
+                                        try:
+                                            gmp.get_report(report_id=report_probe_id, details=True)
+                                        except TypeError:
+                                            gmp.get_report(report_id=report_probe_id)
+                                        api_evidence["report_probe_id"] = report_probe_id
+                                        api_evidence["get_report_probe"] = "PASS"
+                                    api_phase = _phase_result("api", "PASS", api_start, evidence=api_evidence)
+                                except Exception as exc:
+                                    normalized = "gmp_get_report_failed" if report_probe_id else "gmp_get_tasks_failed"
+                                    api_phase = _phase_result(
+                                        "api",
+                                        "FAIL",
+                                        api_start,
+                                        normalized,
+                                        f"{type(exc).__name__}: {exc}",
+                                        {
+                                            "host": host,
+                                            "port": port,
+                                            "transport": "tls",
+                                            "report_probe_enabled": bool(report_probe_id),
+                                            "report_probe_id": report_probe_id,
+                                        },
+                                    )
+                except ModuleNotFoundError as exc:
+                    auth_phase = _phase_result(
+                        "auth",
+                        "FAIL",
+                        auth_start,
+                        "gmp_client_unavailable",
+                        f"{type(exc).__name__}: {exc}",
+                        {"host": host, "port": port, "transport": "tls"},
+                    )
+                    _add_skipped(phases, "api", "blocked_by_gmp_client")
+                except ssl.SSLError as exc:
+                    auth_phase = _phase_result(
+                        "auth",
+                        "FAIL",
+                        auth_start,
+                        "gmp_tls_handshake_failed",
+                        f"{type(exc).__name__}: {exc}",
+                        {"host": host, "port": port, "transport": "tls"},
+                    )
+                    _add_skipped(phases, "api", "blocked_by_tls")
+                except Exception as exc:
+                    auth_phase = _phase_result(
+                        "auth",
+                        "FAIL",
+                        auth_start,
+                        "gmp_connection_failed",
+                        f"{type(exc).__name__}: {exc}",
+                        {"host": host, "port": port, "transport": "tls"},
+                    )
+                    _add_skipped(phases, "api", "blocked_by_gmp_connection")
     elif spec.name == "insightvm":
         info_url = f"{env.get('INSIGHTVM_BASE_URL', '').rstrip('/')}/administration/info"
         probe = _http_probe_detailed("GET", info_url, timeout_seconds, auth=(env.get("INSIGHTVM_USER", ""), env.get("INSIGHTVM_PASSWORD", "")))

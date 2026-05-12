@@ -75,3 +75,78 @@ Preguntas directas de decision:
 ---
 
 Objetivo final: elegir una ruta unica, estable y soportada oficialmente para evitar falsos positivos y errores de handshake en produccion on-prem.
+
+## 10) Consultas adicionales por hallazgos del diagnostico
+
+### 10.1) Coherencia entre precheck y ejecucion real
+- En nuestro diagnostico, `env/dns/tcp` pasan, pero la ejecucion falla en `cycle.top_level` por TLS.
+- Segun buenas practicas oficiales, para `TLSConnection` deberiamos considerar "listo" un endpoint solo si el handshake TLS y la negociacion inicial GMP tambien pasan?
+- OpenVAS/GVMD recomienda algun "health check" oficial para validar endpoint GMP-TLS antes de ejecutar consultas (`get_tasks`, `get_report`)?
+
+### 10.2) Interpretacion oficial de `SSLEOFError`
+- En contexto GMP remoto, OpenVAS documenta `SSLEOFError: UNEXPECTED_EOF_WHILE_READING` como indicador principal de:
+  - puerto GMP sin TLS,
+  - TLS roto/interrumpido por middlebox (LB/proxy/firewall),
+  - incompatibilidad de versiones/cifrados,
+  - o cierre temprano por politica del servidor?
+- Existe recomendacion oficial para diferenciar estas causas de forma rapida (orden de pruebas o comandos sugeridos)?
+
+### 10.3) Listener recomendado para GMP remoto
+- Para una arquitectura "MAD central" (agente en VM A, GVMD en VM B), cual es el patron oficial recomendado:
+  - GMP remoto con TLS extremo a extremo,
+  - tunel seguro y GMP local,
+  - o co-localizar agente y GVMD con socket Unix?
+- Si el recomendado es TLS remoto, cual es la configuracion minima de seguridad/certificados exigida por OpenVAS para produccion?
+
+### 10.4) Puerto 41000 y terminacion TLS
+- OpenVAS/GVMD define algun puerto convencional para GMP TLS o es totalmente configurable?
+- Si se usa un puerto no estandar (ej. `41000`), hay consideraciones oficiales sobre inspeccion TLS de firewall/LB que puedan provocar EOF?
+
+### 10.5) Compatibilidad de cliente Python y metodos de conexion
+- Con versiones donde no aparece `SocketConnection`, cual es la ruta oficial soportada por el proyecto (`TLSConnection` / `UnixSocketConnection`)?
+- OpenVAS recomienda fijar version de `python-gvm` para evitar cambios de API en despliegues productivos?
+
+### 10.6) Recomendaciones de robustez para agentes automatizados
+- Cual es la politica recomendada por OpenVAS para:
+  - reintentos ante errores TLS transitorios,
+  - backoff,
+  - y umbral para declarar fallo permanente?
+- Se recomienda registrar y alertar por categoria de falla (`dns`, `tcp`, `tls`, `auth`, `gmp`) para acelerar RCA?
+
+### 10.7) Consultas directas para el equipo del cliente
+- Pueden confirmar si `10.208.232.43:41000` expone **GMP con TLS real** de extremo a extremo?
+- Hay proxy/LB/NAT/intercepcion TLS entre el agente y GVMD?
+- El certificado presentado en ese listener corresponde al servicio GMP esperado y cadena valida para el cliente?
+- El servidor acepta la version/cifrados TLS negociados por el cliente Python actual?
+- Existe un endpoint alterno oficial del mismo GVMD para GMP-TLS validado por ustedes?
+
+### 10.8) Criterio de aceptacion para cerrar incidencia
+- El caso se considera resuelto oficialmente cuando se cumpla:
+  1. Handshake TLS estable en `GVM_HOST:GVM_PORT`.
+  2. Login GMP exitoso con usuario de integracion.
+  3. `get_tasks` y `get_report` responden sin errores.
+  4. El agente completa `--once` sin `cycle.top_level` ni `SSLEOFError`.
+  5. Se documenta modo final elegido (`tls` remoto o `unix` local) y su runbook.
+
+## 11) Respuesta operativa del cliente (confirmada)
+- El endpoint `10.208.232.43:41000` llega directo a `gvmd`.
+- El listener actual no tiene TLS (sin certificado/CA y sin endpoint alterno TLS).
+- Con ese estado, `GVM_TRANSPORT=tls` va a fallar por diseno durante el handshake (`SSLEOFError`/EOF).
+- Decision MAD: mantener arquitectura centralizada y no instalar collector completo por VM.
+- Siguiente paso de infraestructura: habilitar GMP-TLS real en cliente o definir fallback posterior por SSH controlado.
+
+## 12) Implementacion aplicada para este caso (MAD central)
+- Se habilito transporte `plain` en OpenVAS para GMP por TCP sin TLS, alineado al script validado por cliente.
+- Se mantiene soporte de `tls` y `unix`.
+- Alias soportado: `GVM_TRANSPORT=tcp` se normaliza internamente a `plain`.
+- Proteccion explicita: para usar `plain`, se requiere `GVM_ALLOW_PLAIN_TCP=true`.
+- En precheck, modo `plain` valida cadena GMP real: `get_version -> authenticate -> get_tasks` (y `get_report` opcional con `OPENVAS_PRECHECK_REPORT_ID`).
+
+Variables minimas para modo actual del cliente:
+- `OPENVAS_COLLECTOR=gmp`
+- `GVM_TRANSPORT=plain`
+- `GVM_ALLOW_PLAIN_TCP=true`
+- `GVM_HOST=10.208.232.43`
+- `GVM_PORT=41000`
+- `GVM_USERNAME=<usuario>`
+- `GVM_PASSWORD=<password>`
