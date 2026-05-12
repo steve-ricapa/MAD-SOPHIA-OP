@@ -283,6 +283,21 @@ def _add_skipped(phases: list[dict[str, Any]], phase: str, reason: str) -> None:
     phases.append({"phase": phase, "status": "SKIPPED", "duration_ms": 0, "normalized_error": reason, "raw_error_excerpt": reason[:200], "evidence": {}})
 
 
+def _detect_critical_execution_error(output_text: str) -> tuple[bool, str | None]:
+    text = (output_text or "")
+    low = text.lower()
+    patterns = [
+        ("ERROR @ cycle.top_level", "cycle_top_level_error"),
+        ("Traceback (most recent call last)", "traceback"),
+        ("ModuleNotFoundError", "module_not_found"),
+        ("ImportError", "import_error"),
+    ]
+    for needle, code in patterns:
+        if needle.lower() in low:
+            return True, code
+    return False, None
+
+
 def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], timeout_seconds: float) -> PrecheckResult:
     env = spec.build_env(base_env)
     phases: list[dict[str, Any]] = []
@@ -307,12 +322,12 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
         elif _is_placeholder(val):
             placeholders.append(key)
     if spec.name == "openvas":
-        output_mode = (env.get("OUTPUT_MODE") or "").strip().lower()
-        collector = (env.get("COLLECTOR") or "").strip().lower()
+        output_mode = (env.get("OPENVAS_OUTPUT_MODE") or env.get("OUTPUT_MODE") or "").strip().lower()
+        collector = (env.get("OPENVAS_COLLECTOR") or env.get("COLLECTOR") or "").strip().lower()
         if output_mode not in {"console", "http"}:
-            missing.append("OUTPUT_MODE")
+            missing.append("OPENVAS_OUTPUT_MODE")
         if collector not in {"gmp", "simulated"}:
-            missing.append("COLLECTOR")
+            missing.append("OPENVAS_COLLECTOR")
     if spec.name == "uptimekuma":
         has_auth = bool(env.get("UPTIME_KUMA_API_KEY")) or (bool(env.get("UPTIME_KUMA_USERNAME")) and bool(env.get("UPTIME_KUMA_PASSWORD")))
         if not has_auth:
@@ -353,7 +368,7 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
 
     host_port = parse_host_port(target, default_port) if target else None
     dns_start = time.perf_counter()
-    if spec.name == "openvas" and (env.get("COLLECTOR") or "").strip().lower() == "simulated":
+    if spec.name == "openvas" and (env.get("OPENVAS_COLLECTOR") or env.get("COLLECTOR") or "").strip().lower() == "simulated":
         phases.append(_phase_result("dns", "SKIPPED", dns_start, "collector_simulated", evidence={"collector": "simulated"}))
         _add_skipped(phases, "tcp", "collector_simulated")
         _add_skipped(phases, "tls", "collector_simulated")
@@ -780,15 +795,20 @@ def run_single_run_diagnostics(
                 lf.write(f"COMMAND: {' '.join(command)}\n")
                 lf.write(f"WORKDIR: {run_dir_path}\n\n")
                 lf.write(output_sanitized)
-            status = "PASS" if completed.returncode == 0 else "FAIL"
-            details = f"completed with return code {completed.returncode}"
-            phase = "send" if status == "PASS" else "execution"
+            critical_error, critical_code = _detect_critical_execution_error(output_sanitized)
+            status = "PASS" if (completed.returncode == 0 and not critical_error) else "FAIL"
+            if critical_error:
+                details = f"completed with return code {completed.returncode} but critical runtime error detected ({critical_code})"
+                phase = "execution"
+            else:
+                details = f"completed with return code {completed.returncode}"
+                phase = "send" if status == "PASS" else "execution"
             raw_excerpt = output_sanitized[-600:] if output_sanitized else ""
             execution_phase = _phase_result(
                 "execution",
-                "PASS" if completed.returncode == 0 else "FAIL",
+                "PASS" if status == "PASS" else "FAIL",
                 execution_start,
-                None if completed.returncode == 0 else f"return_code_{completed.returncode}",
+                None if status == "PASS" else (critical_code or f"return_code_{completed.returncode}"),
                 raw_excerpt,
                 {"command": command, "workdir": str(run_dir_path), "return_code": completed.returncode},
             )

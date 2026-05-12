@@ -65,14 +65,19 @@ class GVMClient:
         self.gmp = None
 
         try:
-            from gvm.connections import TLSConnection, SocketConnection, UnixSocketConnection  # type: ignore
+            from gvm.connections import TLSConnection, UnixSocketConnection  # type: ignore
             from gvm.protocols.gmp import GMP  # type: ignore
             self._TLSConnection = TLSConnection
-            self._SocketConnection = SocketConnection
             self._UnixSocketConnection = UnixSocketConnection
             self._GMP = GMP
         except Exception as e:
             self._err = e
+
+        try:
+            from gvm.connections import SocketConnection  # type: ignore
+            self._SocketConnection = SocketConnection
+        except Exception:
+            self._SocketConnection = None
 
     def __enter__(self):
         if self._GMP is None or (self._TLSConnection is None and self._UnixSocketConnection is None):
@@ -85,6 +90,8 @@ class GVMClient:
             self.connection = self._UnixSocketConnection(path=self.socket_path)  # type: ignore
         else:
             if self.use_tls:
+                if self._TLSConnection is None:
+                    raise ModuleNotFoundError("python-gvm TLSConnection no disponible")
                 kwargs = {"hostname": self.host, "port": self.port, "timeout": self.timeout}
                 if self.cafile:
                     kwargs["cafile"] = self.cafile
@@ -95,7 +102,10 @@ class GVMClient:
                 self.connection = self._TLSConnection(**kwargs)  # type: ignore
             else:
                 if self._SocketConnection is None:
-                    raise ModuleNotFoundError("python-gvm SocketConnection no disponible")
+                    raise RuntimeError(
+                        "La version instalada de python-gvm no soporta SocketConnection (TCP plano). "
+                        "Usa GVM_USE_TLS=true con un endpoint GMP TLS o actualiza python-gvm."
+                    )
                 self.connection = self._SocketConnection(hostname=self.host, port=self.port, timeout=self.timeout)  # type: ignore
 
         self._gmp_cm = self._GMP(connection=self.connection)  # type: ignore
@@ -121,6 +131,12 @@ class GVMClient:
                     self.gmp = self._gmp_cm.__enter__()
                     self.gmp.authenticate(self.user, self.password)
                     return self
+
+            if isinstance(e, ssl.SSLError) and self.use_tls and self._SocketConnection is None:
+                raise RuntimeError(
+                    "Fallo handshake TLS contra GMP y esta version de python-gvm no soporta fallback TCP plano. "
+                    "Opciones: habilitar endpoint GMP TLS valido, usar GVM_SOCKET local, o actualizar python-gvm."
+                ) from e
 
             try:
                 self._gmp_cm.__exit__(type(None), None, None)
