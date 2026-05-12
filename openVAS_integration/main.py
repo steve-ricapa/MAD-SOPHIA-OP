@@ -15,8 +15,8 @@ import traceback
 from config import (
     OUTPUT_MODE, TXDXAI_INGEST_URL, TXDXAI_COMPANY_ID, TXDXAI_API_KEY,
     COLLECTOR, POLL_SECONDS, STATE_PATH, META_MAX_KB,
-    GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD, GVM_SOCKET,
-    GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_USE_TLS, GVM_TIMEOUT,
+    GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD, GVM_SOCKET, GVM_TRANSPORT,
+    GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_TIMEOUT,
     DEBUG, MAX_ERROR_REPEAT, DETAIL_LEVEL, TOP_N, REPORT_MAX_KB, FINDING_TEXT_MAX,
     STATE_TTL_DAYS, STATE_MAX_ITEMS,
     validate_config,
@@ -308,6 +308,7 @@ print(f"[{now()}] STATE_PATH={STATE_PATH} | META_MAX_KB={META_MAX_KB}KB")
 print(f"[{now()}] GVM_HOST={GVM_HOST}:{GVM_PORT}")
 if GVM_SOCKET:
     print(f"[{now()}] GVM_SOCKET={GVM_SOCKET}")
+print(f"[{now()}] GVM_TRANSPORT={GVM_TRANSPORT}")
 print(f"[{now()}] DETAIL_LEVEL={DETAIL_LEVEL} | TOP_N={TOP_N} | REPORT_MAX_KB={REPORT_MAX_KB}KB | FINDING_TEXT_MAX={FINDING_TEXT_MAX}")
 
 lock_path = f"{STATE_PATH}.lock"
@@ -315,6 +316,7 @@ args = parse_args()
 cycle_count = 0
 cycle_errors_file = Path("artifacts") / "logs" / "cycle_errors.jsonl"
 cycle_errors_file.parent.mkdir(parents=True, exist_ok=True)
+had_cycle_error = False
 
 while True:
     cycle_count += 1
@@ -336,12 +338,13 @@ while True:
                 with GVMClient(
                     GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD,
                     socket_path=GVM_SOCKET,
+                    transport=GVM_TRANSPORT,
                     cafile=GVM_TLS_CAFILE,
                     certfile=GVM_TLS_CERTFILE,
                     keyfile=GVM_TLS_KEYFILE,
-                    use_tls=GVM_USE_TLS,
                     timeout=GVM_TIMEOUT,
                 ) as client:
+                    print(f"[{now()}] GMP session established | transport={GVM_TRANSPORT} | collector=gmp")
                     tasks_xml = client.get_tasks()
 
             elif active_collector == "simulated":
@@ -511,6 +514,7 @@ while True:
         print(f"\n[{now()}] Detenido por usuario (Ctrl+C).")
         break
     except Exception as e:
+        had_cycle_error = True
         try:
             with open(cycle_errors_file, "a", encoding="utf-8") as ef:
                 ef.write(json.dumps({
@@ -519,8 +523,10 @@ while True:
                     "error_type": type(e).__name__,
                     "error_message": str(e),
                     "collector": COLLECTOR,
+                    "gvm_transport": GVM_TRANSPORT,
                     "gvm_host": GVM_HOST,
                     "gvm_port": GVM_PORT,
+                    "gvm_socket": GVM_SOCKET,
                     "traceback": traceback.format_exc(),
                 }, ensure_ascii=False) + "\n")
         except Exception:
@@ -529,10 +535,10 @@ while True:
 
     if args.once:
         print(f"[{now()}] Modo single-run completado. Saliendo.")
-        break
+        raise SystemExit(1 if had_cycle_error else 0)
     if args.cycles and cycle_count >= args.cycles:
         print(f"[{now()}] Modo cycles={args.cycles} completado. Saliendo.")
-        break
+        raise SystemExit(1 if had_cycle_error else 0)
 
     print(f"[{now()}] Esperando {POLL_SECONDS}s")
     time.sleep(POLL_SECONDS)

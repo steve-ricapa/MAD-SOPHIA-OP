@@ -36,10 +36,10 @@ class GVMClient:
         password: str,
         socket_path: str = "",
         *,
+        transport: str = "",
         cafile: str = "",
         certfile: str = "",
         keyfile: str = "",
-        use_tls: bool = True,
         timeout: int = 30,
     ):
         self.host = host
@@ -48,15 +48,17 @@ class GVMClient:
         self.password = password
         self.socket_path = (socket_path or "").strip()
 
+        self.transport = (transport or "").strip().lower()
+        if not self.transport:
+            self.transport = "unix" if self.socket_path else "tls"
+
         self.cafile = (cafile or "").strip()
         self.certfile = (certfile or "").strip()
         self.keyfile = (keyfile or "").strip()
-        self.use_tls = bool(use_tls)
         self.timeout = int(timeout) if int(timeout) > 0 else 30
 
         self._err: Optional[Exception] = None
         self._TLSConnection = None
-        self._SocketConnection = None
         self._UnixSocketConnection = None
         self._GMP = None
 
@@ -73,12 +75,6 @@ class GVMClient:
         except Exception as e:
             self._err = e
 
-        try:
-            from gvm.connections import SocketConnection  # type: ignore
-            self._SocketConnection = SocketConnection
-        except Exception:
-            self._SocketConnection = None
-
     def __enter__(self):
         if self._GMP is None or (self._TLSConnection is None and self._UnixSocketConnection is None):
             raise ModuleNotFoundError(
@@ -86,58 +82,40 @@ class GVMClient:
                 f"Detalle: {type(self._err).__name__}: {self._err}"
             )
 
-        if self.socket_path:
-            self.connection = self._UnixSocketConnection(path=self.socket_path)  # type: ignore
+        if self.transport not in {"unix", "tls"}:
+            raise ValueError("GVM_TRANSPORT inválido. Usa 'unix' o 'tls'.")
+
+        if self.transport == "unix":
+            if not self.socket_path:
+                raise RuntimeError("GVM_TRANSPORT=unix requiere GVM_SOCKET no vacío.")
+            self.connection = self._UnixSocketConnection(path=self.socket_path, timeout=self.timeout)  # type: ignore
         else:
-            if self.use_tls:
-                if self._TLSConnection is None:
-                    raise ModuleNotFoundError("python-gvm TLSConnection no disponible")
-                kwargs = {"hostname": self.host, "port": self.port, "timeout": self.timeout}
-                if self.cafile:
-                    kwargs["cafile"] = self.cafile
-                if self.certfile:
-                    kwargs["certfile"] = self.certfile
-                if self.keyfile:
-                    kwargs["keyfile"] = self.keyfile
-                self.connection = self._TLSConnection(**kwargs)  # type: ignore
-            else:
-                if self._SocketConnection is None:
-                    raise RuntimeError(
-                        "La version instalada de python-gvm no soporta SocketConnection (TCP plano). "
-                        "Usa GVM_USE_TLS=true con un endpoint GMP TLS o actualiza python-gvm."
-                    )
-                self.connection = self._SocketConnection(hostname=self.host, port=self.port, timeout=self.timeout)  # type: ignore
+            kwargs = {"hostname": self.host, "port": self.port, "timeout": self.timeout}
+            if self.cafile:
+                kwargs["cafile"] = self.cafile
+            if self.certfile:
+                kwargs["certfile"] = self.certfile
+            if self.keyfile:
+                kwargs["keyfile"] = self.keyfile
+            self.connection = self._TLSConnection(**kwargs)  # type: ignore
 
         self._gmp_cm = self._GMP(connection=self.connection)  # type: ignore
 
-        # ✅ cleanup-on-failure: si authenticate falla, cerramos el CM manualmente
         try:
             self.gmp = self._gmp_cm.__enter__()
             self.gmp.authenticate(self.user, self.password)
             return self
-        except Exception as e:
-            can_fallback_plain = (
-                (not self.socket_path)
-                and self.use_tls
-                and self._SocketConnection is not None
-                and isinstance(e, ssl.SSLError)
-            )
-
-            if can_fallback_plain:
-                msg = str(e).upper()
-                if "UNEXPECTED_EOF_WHILE_READING" in msg or "WRONG_VERSION_NUMBER" in msg:
-                    self.connection = self._SocketConnection(hostname=self.host, port=self.port, timeout=self.timeout)  # type: ignore
-                    self._gmp_cm = self._GMP(connection=self.connection)  # type: ignore
-                    self.gmp = self._gmp_cm.__enter__()
-                    self.gmp.authenticate(self.user, self.password)
-                    return self
-
-            if isinstance(e, ssl.SSLError) and self.use_tls and self._SocketConnection is None:
-                raise RuntimeError(
-                    "Fallo handshake TLS contra GMP y esta version de python-gvm no soporta fallback TCP plano. "
-                    "Opciones: habilitar endpoint GMP TLS valido, usar GVM_SOCKET local, o actualizar python-gvm."
-                ) from e
-
+        except ssl.SSLError as e:
+            try:
+                self._gmp_cm.__exit__(type(None), None, None)
+            except Exception:
+                pass
+            raise RuntimeError(
+                "Fallo handshake TLS contra GMP. "
+                "Si el destino no habla TLS, usa GVM_TRANSPORT=unix con GVM_SOCKET local. "
+                "Alternativamente habilita endpoint GMP TLS válido en gvmd."
+            ) from e
+        except Exception:
             try:
                 self._gmp_cm.__exit__(type(None), None, None)
             except Exception:
@@ -158,18 +136,10 @@ class GVMClient:
             return self.gmp.get_tasks()  # type: ignore
 
     def get_report(self, report_id: str) -> str:
-        """
-        Trae reporte con:
-          - rows suficientes
-          - ordenado por severidad desc
-          - excluyendo LOG/INFO (levels=chml)
-        """
         top_n = _env_int("TOP_N", 50)
 
         rows_default = min(1000, max(250, top_n * 5))
         rows = _env_int("GVM_REPORT_ROWS", rows_default)
-
-        # cap duro por seguridad (evitar reportes gigantes)
         rows = max(1, min(int(rows), 2000))
 
         default_filter = f"rows={rows} first=1 sort-reverse=severity levels=chml details=1 notes=1 overrides=1"

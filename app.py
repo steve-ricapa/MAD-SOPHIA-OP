@@ -324,10 +324,20 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
     if spec.name == "openvas":
         output_mode = (env.get("OPENVAS_OUTPUT_MODE") or env.get("OUTPUT_MODE") or "").strip().lower()
         collector = (env.get("OPENVAS_COLLECTOR") or env.get("COLLECTOR") or "").strip().lower()
+        transport = (env.get("GVM_TRANSPORT") or "").strip().lower()
+        if not transport:
+            transport = "unix" if (env.get("GVM_SOCKET") or "").strip() else "tls"
         if output_mode not in {"console", "http"}:
             missing.append("OPENVAS_OUTPUT_MODE")
         if collector not in {"gmp", "simulated"}:
             missing.append("OPENVAS_COLLECTOR")
+        if transport not in {"unix", "tls"}:
+            missing.append("GVM_TRANSPORT(unix|tls)")
+        if collector == "gmp":
+            if transport == "unix" and not (env.get("GVM_SOCKET") or "").strip():
+                missing.append("GVM_SOCKET")
+            if transport == "tls" and not (env.get("GVM_HOST") or "").strip():
+                missing.append("GVM_HOST")
     if spec.name == "uptimekuma":
         has_auth = bool(env.get("UPTIME_KUMA_API_KEY")) or (bool(env.get("UPTIME_KUMA_USERNAME")) and bool(env.get("UPTIME_KUMA_PASSWORD")))
         if not has_auth:
@@ -351,8 +361,15 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
         target = env.get("ZABBIX_API_URL", "")
         default_port = 80
     elif spec.name == "openvas":
-        target = env.get("GVM_HOST", "")
-        default_port = int(env.get("GVM_PORT", "9390"))
+        transport = (env.get("GVM_TRANSPORT") or "").strip().lower()
+        if not transport:
+            transport = "unix" if (env.get("GVM_SOCKET") or "").strip() else "tls"
+        if transport == "unix":
+            target = ""
+            default_port = 0
+        else:
+            target = env.get("GVM_HOST", "")
+            default_port = int(env.get("GVM_PORT", "9390"))
     elif spec.name == "insightvm":
         target = env.get("INSIGHTVM_BASE_URL", "")
         default_port = 3780
@@ -376,6 +393,36 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
         _add_skipped(phases, "api", "collector_simulated")
         summary = "collector=simulated"
         return PrecheckResult(spec.name, required, True, summary, phases=phases, summary=summary)
+
+    if spec.name == "openvas":
+        transport = (env.get("GVM_TRANSPORT") or "").strip().lower()
+        if not transport:
+            transport = "unix" if (env.get("GVM_SOCKET") or "").strip() else "tls"
+        if transport == "unix":
+            socket_path = (env.get("GVM_SOCKET") or "").strip()
+            if not socket_path:
+                phases.append(_phase_result("dns", "FAIL", dns_start, "socket_missing", "GVM_SOCKET vacío", {"transport": "unix"}))
+                for phase in ("tcp", "tls", "auth", "api"):
+                    _add_skipped(phases, phase, "blocked_by_socket")
+                summary = "dns FAIL: socket_missing"
+                return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
+
+            socket_file = Path(socket_path)
+            if not socket_file.exists():
+                phases.append(_phase_result("dns", "FAIL", dns_start, "socket_not_found", f"socket no existe: {socket_path}", {"socket_path": socket_path}))
+                for phase in ("tcp", "tls", "auth", "api"):
+                    _add_skipped(phases, phase, "blocked_by_socket")
+                summary = "dns FAIL: socket_not_found"
+                return PrecheckResult(spec.name, required, False, summary, phases=phases, summary=summary)
+
+            phases.append(_phase_result("dns", "PASS", dns_start, evidence={"transport": "unix", "socket_path": socket_path}))
+            _add_skipped(phases, "tcp", "gmp_unix_socket")
+            _add_skipped(phases, "tls", "gmp_unix_socket")
+            _add_skipped(phases, "auth", "gmp_unix_socket")
+            _add_skipped(phases, "api", "gmp_unix_socket")
+            summary = "precheck PASS (gmp_unix_socket)"
+            return PrecheckResult(spec.name, required, True, summary, phases=phases, summary=summary)
+
     if not host_port:
         phases.append(_phase_result("dns", "FAIL", dns_start, "invalid_host", f"invalid host/url: {target}", {"target": target}))
         for phase in ("tcp", "tls", "auth", "api"):
