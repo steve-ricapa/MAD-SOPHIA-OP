@@ -47,12 +47,18 @@ Linux (OpenVAS):
 export OPENVAS_PAYLOAD_DEBUG=true
 ```
 
+Para que opcion `5` ejecute varios ciclos de OpenVAS (en vez de un solo `--once`):
+```bash
+export OPENVAS_DIAG_CYCLES=5
+```
+
 Tambien disponible para: `WAZUH_PAYLOAD_DEBUG`, `ZABBIX_PAYLOAD_DEBUG`, `NESSUS_PAYLOAD_DEBUG`, `UPTIME_PAYLOAD_DEBUG`.
 
 ## Rutas de logs y artifacts
 Diagnostico orquestador (opcion 5 con single-run):
 - `C:\Users\diego\PROYECTOS\MAD-SOPHIA-OP\runtime\diagnostics\<timestamp>\`
 - Archivos: `diagnostic_report.json`, `<integracion>.log`
+- OpenVAS (multi-ciclo): `openVAS_integration/artifacts/logs/cycle_errors.jsonl`
 
 Payload debug (si esta activado):
 - OpenVAS: `runtime\payload_debug\openvas\`

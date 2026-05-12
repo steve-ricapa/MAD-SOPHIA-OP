@@ -639,6 +639,9 @@ def command_once_or_none(spec: AgentSpec, python_exec: str, env: dict[str, str])
     if spec.name == "zabbix":
         return [python_exec, str(ROOT / "zabix_integration/agent.py"), "--once"], ""
     if spec.name == "openvas":
+        cycles_raw = (env.get("OPENVAS_DIAG_CYCLES") or "").strip()
+        if cycles_raw.isdigit() and int(cycles_raw) > 0:
+            return [python_exec, str(ROOT / "openVAS_integration/main.py"), "--cycles", cycles_raw], ""
         return [python_exec, str(ROOT / "openVAS_integration/main.py"), "--once"], ""
     if spec.name == "wazuh":
         return [python_exec, str(ROOT / "wazuh_integration/main.py"), "--once"], ""
