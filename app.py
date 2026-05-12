@@ -345,6 +345,7 @@ def _detect_critical_execution_error(output_text: str) -> tuple[bool, str | None
     low = text.lower()
     patterns = [
         ("ERROR @ cycle.top_level", "cycle_top_level_error"),
+        ("ERROR @ cycle.task[", "cycle_task_error"),
         ("Traceback (most recent call last)", "traceback"),
         ("ModuleNotFoundError", "module_not_found"),
         ("ImportError", "import_error"),

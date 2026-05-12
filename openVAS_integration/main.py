@@ -419,6 +419,7 @@ while True:
                             with GVMClient(
                                 GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD,
                                 socket_path=GVM_SOCKET,
+                                transport=GVM_TRANSPORT,
                                 cafile=GVM_TLS_CAFILE,
                                 certfile=GVM_TLS_CERTFILE,
                                 keyfile=GVM_TLS_KEYFILE,
