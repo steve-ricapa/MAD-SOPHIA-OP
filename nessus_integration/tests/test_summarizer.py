@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+
+NESSUS_DIR = Path(__file__).resolve().parents[1]
+if str(NESSUS_DIR) not in sys.path:
+    sys.path.insert(0, str(NESSUS_DIR))
+
 from summarizer import build_findings, build_report, build_snapshot_signature
 
 
