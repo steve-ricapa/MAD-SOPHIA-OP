@@ -520,6 +520,12 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
                     ctx = ssl.create_default_context(cafile=cafile)
                 else:
                     ctx = ssl._create_unverified_context()
+            elif spec.name == "nessus":
+                verify_ssl = parse_bool(env.get("NESSUS_VERIFY_SSL"), default=False)
+                if verify_ssl:
+                    ctx = ssl.create_default_context()
+                else:
+                    ctx = ssl._create_unverified_context()
             else:
                 ctx = ssl.create_default_context()
             with socket.create_connection((host, port), timeout=timeout_seconds) as sock:
@@ -530,6 +536,10 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
                 evidence["transport"] = openvas_transport
                 evidence["cafile_configured"] = bool(first_nonempty([env.get("GVM_TLS_CAFILE"), env.get("GVM_CA_FILE")]))
                 evidence["cert_validation"] = "ca" if evidence["cafile_configured"] else "skipped_no_ca"
+            elif spec.name == "nessus":
+                verify_ssl = parse_bool(env.get("NESSUS_VERIFY_SSL"), default=False)
+                evidence["verify_ssl"] = verify_ssl
+                evidence["cert_validation"] = "ca" if verify_ssl else "skipped_by_nessus_verify_ssl_false"
             phases.append(_phase_result("tls", "PASS", tls_start, evidence=evidence))
         except ssl.SSLError as exc:
             normalized_error = _normalize_tls_failure(exc)
@@ -1479,6 +1489,8 @@ def main() -> None:
         default_option=args.startup_menu_default_option,
         selected_agents=[spec.name for spec in selected_specs],
     )
+    auto_diagnostic_single_run = action == "run_one_and_exit"
+    effective_diagnostic_single_run = diagnostic_single_run or auto_diagnostic_single_run
     test_specs: list[AgentSpec] = []
     if action != "skip_and_continue":
         if action in {"run_one_and_continue", "run_one_and_exit"}:
@@ -1501,16 +1513,19 @@ def main() -> None:
         _, _, failed_required = log_precheck_results(results)
 
         # Keep legacy behavior when not in diagnostic mode.
-        if action in {"run_and_exit", "run_one_and_exit"} and not diagnostic_single_run:
+        if action in {"run_and_exit", "run_one_and_exit"} and not effective_diagnostic_single_run:
             raise SystemExit(0 if not failed_required else 1)
 
         if require_all_tests and failed_required and not NON_BLOCKING_STARTUP_TESTS:
             raise SystemExit("Startup aborted because required integration tests failed.")
 
-    if diagnostic_single_run:
+    if effective_diagnostic_single_run:
         diag_specs = test_specs if test_specs else selected_specs
         log("")
-        log("Running diagnostic single-run execution...")
+        if auto_diagnostic_single_run and not diagnostic_single_run:
+            log("Running diagnostic single-run execution (auto-enabled by startup option 5)...")
+        else:
+            log("Running diagnostic single-run execution...")
         diag_results, diag_dir = run_single_run_diagnostics(
             selected_specs=diag_specs,
             base_env=base_env,
