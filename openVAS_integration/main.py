@@ -1,13 +1,16 @@
-import os
+﻿import os
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 import argparse
+import json
 import time
 import socket
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any
 from collections import Counter
+from pathlib import Path
+import traceback
 
 from config import (
     OUTPUT_MODE, TXDXAI_INGEST_URL, TXDXAI_COMPANY_ID, TXDXAI_API_KEY,
@@ -38,6 +41,7 @@ OPENVAS_BANNER = r"""
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="OpenVAS real-time integration agent")
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    parser.add_argument("--cycles", type=int, default=0, help="Run N cycles and exit (0=infinite)")
     return parser.parse_args()
 
 
@@ -61,7 +65,7 @@ def _suggestion(step: str, e: BaseException, context: dict) -> str:
     if isinstance(e, ModuleNotFoundError):
         if "gvm" in str(e).lower():
             return "Falta python-gvm en ESTE entorno/venv. Instala deps o usa COLLECTOR=simulated."
-        return "Falta un módulo. Verifica requirements y que el venv esté activo."
+        return "Falta un mÃ³dulo. Verifica requirements y que el venv estÃ© activo."
 
     if isinstance(e, socket.gaierror):
         return "Error DNS (no resuelve host). Revisa nombre, DNS, o usa IP."
@@ -69,18 +73,18 @@ def _suggestion(step: str, e: BaseException, context: dict) -> str:
     if isinstance(e, TimeoutError):
         if _is_win_error(e, 10060):
             return "Host/puerto no responde (WinError 10060). Verifica IP/puerto/firewall/gvmd."
-        return "Timeout: el host/servicio no respondió."
+        return "Timeout: el host/servicio no respondiÃ³."
 
     if isinstance(e, ConnectionRefusedError):
-        return "Conexión rechazada: puerto cerrado o servicio caído."
+        return "ConexiÃ³n rechazada: puerto cerrado o servicio caÃ­do."
     if _is_win_error(e, 10061):
-        return "WinError 10061: conexión rechazada."
+        return "WinError 10061: conexiÃ³n rechazada."
 
     if "ssl" in type(e).__name__.lower() or "certificate" in str(e).lower():
         return "Problema TLS/certificado."
 
     if isinstance(e, ET.ParseError) or "ParseError" in type(e).__name__:
-        return "XML inválido. Revisa META_MAX_KB/REPORT_MAX_KB o reporte."
+        return "XML invÃ¡lido. Revisa META_MAX_KB/REPORT_MAX_KB o reporte."
 
     if isinstance(e, PermissionError):
         return "Permiso denegado: revisa permisos."
@@ -95,7 +99,7 @@ def handle_exception(step: str, e: BaseException, context: dict):
 
     if n > MAX_ERROR_REPEAT:
         if n == MAX_ERROR_REPEAT + 1:
-            print(f"[{now()}] ERROR @ {step} repetido >{MAX_ERROR_REPEAT} veces. Se silenciará.")
+            print(f"[{now()}] ERROR @ {step} repetido >{MAX_ERROR_REPEAT} veces. Se silenciarÃ¡.")
         return
 
     print("\n" + "!" * 90)
@@ -106,7 +110,7 @@ def handle_exception(step: str, e: BaseException, context: dict):
         if GVM_SOCKET:
             print(f"Tip: usando socket GMP: {GVM_SOCKET}")
         else:
-            print("Tip: valida conectividad al puerto GMP (9390 típicamente).")
+            print("Tip: valida conectividad al puerto GMP (9390 tÃ­picamente).")
 
     print("!" * 90 + "\n")
 
@@ -141,12 +145,12 @@ def simulated_report_xml(report_id: str) -> str:
         <vulns><count>4</count></vulns>
         <results>
           <result>
-            <name>Vulnerabilidad Crítica</name>
+            <name>Vulnerabilidad CrÃ­tica</name>
             <severity>10.0</severity>
             <host>192.168.1.10</host>
             <port>22/tcp</port>
             <nvt oid="1.3.6.1.4.1.25623.1.0.12345">
-              <description>Descripción detallada de la vulnerabilidad crítica.</description>
+              <description>DescripciÃ³n detallada de la vulnerabilidad crÃ­tica.</description>
               <impact>Impacto severo en la confidencialidad.</impact>
               <solution>Actualizar el servicio inmediatamente.</solution>
               <ref type="cve" id="CVE-2024-0001"/>
@@ -292,7 +296,7 @@ def build_dashboard_blocks(
 print("[INFO] Starting OpenVAS Real-time Agent...")
 print(OPENVAS_BANNER)
 
-# ✅ valida config al arranque (falla rápido con mensaje claro)
+# âœ… valida config al arranque (falla rÃ¡pido con mensaje claro)
 try:
     validate_config()
 except Exception as e:
@@ -308,8 +312,12 @@ print(f"[{now()}] DETAIL_LEVEL={DETAIL_LEVEL} | TOP_N={TOP_N} | REPORT_MAX_KB={R
 
 lock_path = f"{STATE_PATH}.lock"
 args = parse_args()
+cycle_count = 0
+cycle_errors_file = Path("artifacts") / "logs" / "cycle_errors.jsonl"
+cycle_errors_file.parent.mkdir(parents=True, exist_ok=True)
 
 while True:
+    cycle_count += 1
     print(f"\n[{now()}] Nuevo ciclo")
 
     try:
@@ -338,7 +346,7 @@ while True:
             elif active_collector == "simulated":
                 tasks_xml = simulated_tasks_xml()
             else:
-                raise ValueError("COLLECTOR inválido. Usa 'gmp' o 'simulated'.")
+                raise ValueError("COLLECTOR invÃ¡lido. Usa 'gmp' o 'simulated'.")
 
             if len(tasks_xml.encode("utf-8", errors="ignore")) > (META_MAX_KB * 1024):
                 raise ValueError("XML de tasks excede META_MAX_KB")
@@ -433,7 +441,7 @@ while True:
                     counts = severities or {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
                     total_hosts = int(report_stats.get("hosts_count", 0)) if report_stats else 0
                     
-                    # Si no hay stats pero hay findings, contamos hosts únicos en findings
+                    # Si no hay stats pero hay findings, contamos hosts Ãºnicos en findings
                     if total_hosts == 0 and findings:
                         total_hosts = len(set(f.get("host") for f in findings if f.get("host")))
 
@@ -442,7 +450,7 @@ while True:
                         cvss_max = max((float(f.get("cvss", 0.0)) for f in findings), default=0.0)
 
                     # ------------------------------------------------------------------
-                    # ✅ Production Optimization Refactor (snake_case & Restructured):
+                    # âœ… Production Optimization Refactor (snake_case & Restructured):
                     # - scan_id, company_id, api_key, scanned_at, event_type
                     # - scan_summary: contains all counters and metadata
                     # - findings: detailed list from services.py
@@ -456,7 +464,7 @@ while True:
                         "scanned_at": scanned_at,
                         "event_type": "vuln_scan_report",
                         
-                        # Requisito: Todos los contadores se mueven aquí. SE ELIMINAN DE LA RAÍZ.
+                        # Requisito: Todos los contadores se mueven aquÃ­. SE ELIMINAN DE LA RAÃZ.
                         "scan_summary": {
                             "scan_id": report_id,
                             "scan_name": task_name,
@@ -471,11 +479,11 @@ while True:
                             "info_count": counts.get("info", 0),
                         },
                         
-                        # El Backend (si sigue pidiendo 'results') podría fallar si lo quitamos del todo,
-                        # pero la instrucción dice "Remueve duplicados de la raíz".
-                        # Si el backend lo REQUIERE para el OK 201, lo mantendremos como un objeto vacío 
+                        # El Backend (si sigue pidiendo 'results') podrÃ­a fallar si lo quitamos del todo,
+                        # pero la instrucciÃ³n dice "Remueve duplicados de la raÃ­z".
+                        # Si el backend lo REQUIERE para el OK 201, lo mantendremos como un objeto vacÃ­o 
                         # o el set de counts hasta que se actualice el backend a snake_case.
-                        # "results": counts, # <- ELIMINADO SEGÚN INSTRUCCIÓN
+                        # "results": counts, # <- ELIMINADO SEGÃšN INSTRUCCIÃ“N
                         
                         "findings": findings or [],
                     }
@@ -502,10 +510,27 @@ while True:
         print(f"\n[{now()}] Detenido por usuario (Ctrl+C).")
         break
     except Exception as e:
-        handle_exception("cycle.top_level", e, {"accion": "Se continuará el siguiente ciclo"})
+        try:
+            with open(cycle_errors_file, "a", encoding="utf-8") as ef:
+                ef.write(json.dumps({
+                    "timestamp_utc": now(),
+                    "cycle": cycle_count,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "collector": COLLECTOR,
+                    "gvm_host": GVM_HOST,
+                    "gvm_port": GVM_PORT,
+                    "traceback": traceback.format_exc(),
+                }, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        handle_exception("cycle.top_level", e, {"accion": "Se continuarÃ¡ el siguiente ciclo"})
 
     if args.once:
         print(f"[{now()}] Modo single-run completado. Saliendo.")
+        break
+    if args.cycles and cycle_count >= args.cycles:
+        print(f"[{now()}] Modo cycles={args.cycles} completado. Saliendo.")
         break
 
     print(f"[{now()}] Esperando {POLL_SECONDS}s")
