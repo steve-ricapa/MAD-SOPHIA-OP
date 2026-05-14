@@ -16,7 +16,7 @@ class Config:
     state_path: str
     company_id: int
     api_key: str
-    interval: int # Segundos entre escaneos
+    interval: int
     verify_ssl: bool
     request_timeout: int
     http_retries: int
@@ -27,6 +27,14 @@ class Config:
     debug_report_path: Path
     last_payload_path: Path
     include_events: bool
+    force_send_every_cycles: int
+    snapshot_always_send: bool
+    mad_version: str
+    integration_version: str
+    source: str
+    queue_enabled: bool
+    queue_dir: Path
+    queue_flush_max: int
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -42,6 +50,7 @@ def _resolve_path(base_dir: Path, raw_path: str, fallback_name: str) -> Path:
         candidate = base_dir / candidate
     return candidate
 
+
 def load_config() -> Config:
     load_dotenv()
     base_dir = Path(__file__).resolve().parent
@@ -51,8 +60,8 @@ def load_config() -> Config:
     user = os.getenv("ZABBIX_USER", "").strip()
     password = os.getenv("ZABBIX_PASS", "").strip()
     hours = int(os.getenv("ZABBIX_HOURS") or os.getenv("HOURS", "24"))
-    
-    # Backend TxDxAI (Prioridad a TXDXAI_*)
+
+    # Backend TxDxAI
     output_mode = (os.getenv("ZABBIX_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "stdout").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
     company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
@@ -61,7 +70,7 @@ def load_config() -> Config:
         or os.getenv("TXDXAI_API_KEY")
         or os.getenv("API_KEY", "local_test_key")
     )
-    
+
     state_raw = os.getenv("ZABBIX_STATE_FILE") or os.getenv("STATE_FILE") or os.getenv("STATE_PATH", "state.json")
     interval = int(os.getenv("ZABBIX_INTERVAL") or os.getenv("INTERVAL", "60"))
     verify_ssl = _env_bool("ZABBIX_VERIFY_SSL", _env_bool("VERIFY_SSL", True))
@@ -75,9 +84,32 @@ def load_config() -> Config:
     last_payload_raw = os.getenv("ZABBIX_LAST_PAYLOAD_PATH") or os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
     include_events = _env_bool("ZABBIX_INCLUDE_EVENTS", _env_bool("INCLUDE_EVENTS", False))
 
+    # Snapshot / Queue
+    force_send_every_cycles = int(
+        os.getenv("ZABBIX_FORCE_SEND_EVERY_CYCLES")
+        or os.getenv("FORCE_SEND_EVERY_CYCLES", "10")
+    )
+    snapshot_always_send = _env_bool(
+        "ZABBIX_SNAPSHOT_ALWAYS_SEND",
+        _env_bool("SNAPSHOT_ALWAYS_SEND", False),
+    )
+    mad_version = (os.getenv("MAD_VERSION") or "2.3.0").strip()
+    integration_version = (
+        os.getenv("ZABBIX_INTEGRATION_VERSION")
+        or os.getenv("INTEGRATION_VERSION", "1.0.0")
+    ).strip()
+    source = (os.getenv("SOURCE") or "mad-collector").strip()
+    queue_enabled = _env_bool("ZABBIX_QUEUE_ENABLED", _env_bool("QUEUE_ENABLED", True))
+    queue_flush_max = int(
+        os.getenv("ZABBIX_QUEUE_FLUSH_MAX")
+        or os.getenv("QUEUE_FLUSH_MAX", "20")
+    )
+    queue_dir_raw = os.getenv("ZABBIX_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
+
     state_path = _resolve_path(base_dir, state_raw, "state.json")
     debug_report_path = _resolve_path(base_dir, debug_report_raw, "debug_report.json")
     last_payload_path = _resolve_path(base_dir, last_payload_raw, "last_payload_sent.json")
+    queue_dir = _resolve_path(base_dir, queue_dir_raw, "queue")
 
     if not api_url:
         raise SystemExit("Falta ZABBIX_API_URL.")
@@ -85,7 +117,7 @@ def load_config() -> Config:
         raise SystemExit("Faltan ZABBIX_USER o ZABBIX_PASS.")
     if output_mode not in {"stdout", "webhook", "all"}:
         raise SystemExit("ZABBIX_OUTPUT_MODE/OUTPUT_MODE debe ser stdout, webhook o all.")
-    
+
     return Config(
         base_dir=base_dir,
         api_url=api_url,
@@ -108,4 +140,12 @@ def load_config() -> Config:
         debug_report_path=debug_report_path,
         last_payload_path=last_payload_path,
         include_events=include_events,
+        force_send_every_cycles=force_send_every_cycles,
+        snapshot_always_send=snapshot_always_send,
+        mad_version=mad_version,
+        integration_version=integration_version,
+        source=source,
+        queue_enabled=queue_enabled,
+        queue_dir=queue_dir,
+        queue_flush_max=queue_flush_max,
     )

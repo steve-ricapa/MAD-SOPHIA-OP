@@ -4,16 +4,18 @@ import argparse
 import json
 import logging
 import time
+import uuid
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
-from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
 from agents.unified_agent import UnifiedAgent
-from models.normalize import normalize_unified
+from models.normalize import build_insightvm_report, normalize_unified
 from reports.assets_export import build_assets_table, write_assets_csv, write_assets_json
+from snapshot import build_idempotency_key, build_snapshot_signature, decide_snapshot_send
 from utils.state_manager import StateManager
 from clients.backend_client import BackendClient
 from config.insightvm_config import load_backend_settings, load_general_settings
@@ -24,7 +26,7 @@ INSIGHTVM_BANNER = r"""
   | || '_ \/ __| |/ _` | '_ \| __| |   / /| ' /
   | || | | \__ \ | (_| | | | | |_| |  / / | . \
  |___|_| |_|___/_|\__, |_| |_|\__|_| /_/  |_|\_\
-                  |___/
+                   |___/
 """
 
 
@@ -54,9 +56,10 @@ def save_json(path: str, data: dict) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Agente InsightVM Unificado")
+    p = argparse.ArgumentParser(description="Agente InsightVM Snapshot v1.0")
 
     p.add_argument("--env", default=".env", help="Ruta del archivo .env (default: .env)")
+    p.add_argument("--once", action="store_true", help="Run one cycle and exit")
     p.add_argument("--output", default="security_data.json", help="Salida JSON cruda")
     p.add_argument("--normalized-output", default="security_data_normalized.json", help="Salida JSON normalizada")
 
@@ -71,7 +74,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log-level", default="INFO", help="DEBUG/INFO/WARNING/ERROR")
     p.add_argument("--log-file", default=None, help="Archivo de log")
     p.add_argument("--summary", action="store_true", help="Imprime resumen final")
-    p.add_argument("--interval", type=int, default=0, help="Segundos entre ejecuciones")
 
     return p
 
@@ -80,25 +82,38 @@ def main() -> None:
     args = build_parser().parse_args()
     setup_logging(args.log_level, args.log_file)
     log = logging.getLogger("main")
-    log.info("Starting InsightVM Real-time Agent...")
+    log.info("Starting InsightVM Snapshot Agent...")
     log.info("\n%s", INSIGHTVM_BANNER)
-    
-    while True:
-        execute_run(args, log)
-        if args.interval <= 0:
-            break
-        log.info("Modo servicio: Esperando %s segundos...", args.interval)
-        time.sleep(args.interval)
 
-
-def execute_run(args, log) -> None:
     env_path = Path(args.env)
     load_dotenv(dotenv_path=env_path, override=True)
-    log.info("Iniciando ciclo de recolección...")
 
     general_cfg = load_general_settings()
     backend_cfg = load_backend_settings()
     state_manager = StateManager(state_file=general_cfg.state_file)
+
+    while True:
+        try:
+            execute_run(args, log, general_cfg, backend_cfg, state_manager)
+        except Exception as e:
+            log.error("Cycle failure: %s", e)
+            time.sleep(5)
+            continue
+
+        if args.once:
+            log.info("Single-run mode completed. Exiting.")
+            break
+
+        log.info("Modo servicio: Esperando %s segundos...", general_cfg.interval)
+        time.sleep(general_cfg.interval)
+
+
+def _build_scan_id(window_start: str, window_end: str) -> str:
+    return f"insightvm-{window_start}-{window_end}-{uuid.uuid4().hex[:8]}"
+
+
+def execute_run(args, log, general_cfg, backend_cfg, state_manager) -> None:
+    log.info("Iniciando ciclo de recolección...")
 
     agent = UnifiedAgent(state_manager=state_manager)
     raw = agent.run(
@@ -116,113 +131,132 @@ def execute_run(args, log) -> None:
         write_assets_csv(args.assets_csv, rows)
         write_assets_json(args.assets_json, rows)
 
-    if backend_cfg.url:
-        log.info("Preparando envío unificado al backend...")
-        ins_data = normalized.get("insightvm", {})
-        original_assets = ins_data.get("assets", [])
-        
-        new_assets = []
-        for a in original_assets:
-            aid = a.get("raw", {}).get("id")
-            l_scan = a.get("raw", {}).get("history", [{}])[-1].get("scanId") if a.get("raw", {}).get("history") else None
-            if not state_manager.is_asset_processed(aid, l_scan):
-                new_assets.append(a)
-                state_manager.mark_asset_processed(aid, l_scan)
+    ins_data = normalized.get("insightvm", {})
+    assets = ins_data.get("assets", []) or []
+    findings = ins_data.get("findings", []) or []
 
-        if not new_assets:
-            log.info("No hay activos nuevos o actualizados.")
-        else:
-            log.info("Enviando %s activos nuevos al backend.", len(new_assets))
-            
-            new_asset_ids = {a.get("id") for a in new_assets}
-            all_normalized_findings = ins_data.get("findings", [])
-            delta_findings = []
-            
-            asset_id_to_ip = {a.get("id"): a.get("ip") for a in original_assets}
+    if not backend_cfg.url:
+        log.info("No backend URL configured. Skipping delivery.")
+        return
 
-            for f in all_normalized_findings:
-                if f.get("asset_id") in new_asset_ids:
-                    raw_vuln = f.get("raw", {})
-                    # InsightVM devuelve objetos para descripción y solución
-                    desc_obj = raw_vuln.get("description", "No description available")
-                    sol_obj = raw_vuln.get("solution", "No solution available")
-                    
-                    description = desc_obj
-                    if isinstance(desc_obj, dict):
-                        description = desc_obj.get("text") or desc_obj.get("html") or str(desc_obj)
-                    
-                    solution = sol_obj
-                    if isinstance(sol_obj, dict):
-                        solution = sol_obj.get("text") or sol_obj.get("html") or str(sol_obj)
+    asset_ip_map: dict = {}
+    for a in assets:
+        a_id = a.get("id")
+        a_ip = a.get("ip")
+        if a_id:
+            asset_ip_map[a_id] = a_ip
 
-                    delta_findings.append({
-                        "name": f.get("title"),
-                        "severity": f.get("severity"),
-                        "cvss": f.get("cvss"),
-                        "risk_score": f.get("risk_score"),
-                        "cve": f.get("cve"),
-                        "host": asset_id_to_ip.get(f.get("asset_id")),
-                        "description": str(description),
-                        "solution": str(solution),
-                        "impact": str(f.get("impact") or "No impact information")
-                    })
+    current_signature = build_snapshot_signature(
+        assets_raw=raw.get("insightvm", {}),
+        normalized_assets=assets,
+        normalized_findings=findings,
+    )
+    prev_signature = str(state_manager.state.get("snapshot_signature", ""))
+    unchanged_cycles = int(state_manager.state.get("unchanged_cycles", 0) or 0)
+    has_sent_once = bool(state_manager.state.get("has_sent_once", False))
 
-            counts = {
-                "critical": sum(1 for f in all_normalized_findings if f.get("severity") == "critical"),
-                "high": sum(1 for f in all_normalized_findings if f.get("severity") == "high"),
-                "medium": sum(1 for f in all_normalized_findings if f.get("severity") == "medium"),
-                "low": sum(1 for f in all_normalized_findings if f.get("severity") == "low"),
-                "info": sum(1 for f in all_normalized_findings if f.get("severity") == "info"),
-            }
+    snapshot_decision = decide_snapshot_send(
+        current_signature=current_signature,
+        previous_signature=prev_signature,
+        unchanged_cycles=unchanged_cycles,
+        has_sent_once=has_sent_once,
+        force_send_every_cycles=int(backend_cfg.force_send_every_cycles),
+        snapshot_always_send=bool(backend_cfg.snapshot_always_send),
+    )
+    send_reason = str(snapshot_decision.get("reason", "snapshot_changed"))
+    should_send = bool(snapshot_decision.get("should_send", False))
+    snapshot_changed = bool(snapshot_decision.get("changed", False))
+    unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
+    snapshot_mode = "always" if backend_cfg.snapshot_always_send else "delta_with_periodic_forced"
 
-            scanned_at = datetime.now(timezone.utc).isoformat()
-            scan_id = f"IVM-{int(time.time())}"
+    state_manager.state["snapshot_signature"] = current_signature
+    state_manager.state["unchanged_cycles"] = unchanged_cycles
 
-            delta_report = {
-                "scan_id": scan_id,
-                "company_id": int(backend_cfg.company_id) if str(backend_cfg.company_id).isdigit() else backend_cfg.company_id,
-                "api_key": backend_cfg.api_key,
-                "scanned_at": scanned_at,
-                "event_type": "vuln_scan_report",
-                "scanner_type": "insightvm",
-                "agent_type": "insightvm", # Enviamos ambos por compatibilidad
-                
-                "scan_summary": {
-                    "scan_id": scan_id,
-                    "scan_name": f"InsightVM Scan - {scanned_at}",
-                    "status": "completed",
-                    "total_hosts": len(original_assets),
-                    "scanned_at": scanned_at,
-                    "cvss_max": max([f.get("cvss") or 0.0 for f in all_normalized_findings] + [0.0]),
-                    "critical_count": counts["critical"],
-                    "high_count": counts["high"],
-                    "medium_count": counts["medium"],
-                    "low_count": counts["low"],
-                    "info_count": counts["info"],
-                    "scanner_type": "insightvm"
-                },
-                "findings": delta_findings,
-            }
-            
-            save_json("last_payload_sent.json", delta_report)
-            
-            backend = BackendClient(ingest_url=backend_cfg.url, api_key=backend_cfg.api_key, verify_ssl=backend_cfg.verify)
-            if backend.send_data(delta_report):
-                log.info("Reporte enviado exitosamente.")
-                state_manager.save()
-            else:
-                log.warning("Fallo al enviar al backend.")
-    else:
-        for a in normalized.get("insightvm", {}).get("assets", []):
-            aid = a.get("raw", {}).get("id")
-            l_scan = a.get("raw", {}).get("history", [{}])[-1].get("scanId") if a.get("raw", {}).get("history") else None
-            state_manager.mark_asset_processed(aid, l_scan)
+    if not should_send:
+        state_manager.state["last_send_result"] = "skipped_no_change"
+        log.info(
+            "Snapshot sin cambios (ciclo=%s/%s) reason=%s",
+            unchanged_cycles,
+            backend_cfg.force_send_every_cycles,
+            send_reason,
+        )
         state_manager.save()
+        return
+
+    now_utc = datetime.now(timezone.utc)
+    window_start = now_utc.strftime("%Y%m%dT%H%M%SZ")
+    window_end = window_start
+
+    scan_id = _build_scan_id(window_start, window_end)
+    idempotency_key = build_idempotency_key(
+        backend_cfg.company_id, "insightvm", general_cfg.event_type, current_signature
+    )
+
+    report = build_insightvm_report(
+        scan_id=scan_id,
+        company_id=backend_cfg.company_id,
+        api_key=backend_cfg.api_key or "",
+        idempotency_key=idempotency_key,
+        assets=assets,
+        findings=findings,
+        asset_ip_map=asset_ip_map,
+        snapshot_signature=current_signature,
+        snapshot_mode=snapshot_mode,
+        send_reason=send_reason,
+        snapshot_changed=snapshot_changed,
+        mad_version=backend_cfg.mad_version,
+        integration_version=backend_cfg.integration_version,
+        source=backend_cfg.source,
+    )
+
+    log.info(
+        "Prepared %s findings for delivery (reason=%s signatures=%s)",
+        len(report["findings"]),
+        send_reason,
+        current_signature[:16],
+    )
+
+    save_json("last_payload_sent.json", report)
+
+    backend = BackendClient(
+        ingest_url=backend_cfg.url,
+        api_key=backend_cfg.api_key,
+        verify_ssl=backend_cfg.verify,
+    )
+
+    delivery_result = backend.send_data(
+        data=report,
+        idempotency_key=idempotency_key,
+        retries=3,
+        backoff_seconds=5,
+        timeout=60,
+        queue_enabled=backend_cfg.queue_enabled,
+        queue_dir=backend_cfg.queue_dir,
+        queue_flush_max=backend_cfg.queue_flush_max,
+    )
+
+    state_manager.state["snapshot_signature"] = current_signature
+    state_manager.state["unchanged_cycles"] = 0
+    state_manager.state["has_sent_once"] = True
+    state_manager.state["last_idempotency_key"] = idempotency_key
+    state_manager.state["last_send_result"] = "sent" if delivery_result.get("sent") else "queued"
+    state_manager.save()
+
+    log.info(
+        "Report sent | findings=%s sent=%s queued=%s flushed=%s reason=%s",
+        len(report["findings"]),
+        delivery_result.get("sent"),
+        delivery_result.get("queued"),
+        delivery_result.get("flushed_from_queue"),
+        send_reason,
+    )
 
     if args.summary:
-        ins = normalized.get("insightvm") or {}
-        log.info("Resumen | assets=%s findings=%s", len(ins.get("assets") or []), len(ins.get("findings") or []))
-    log.info("Finalizado.")
+        log.info(
+            "Resumen | assets=%s findings=%s",
+            len(assets),
+            len(findings),
+        )
 
 
 if __name__ == "__main__":
