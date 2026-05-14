@@ -90,4 +90,4 @@ def build_idempotency_key(
 ) -> str:
     raw = f"{company_id}:{scanner_type}:{event_type}:{snapshot_signature}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return f"insightvm-snapshot-{digest}"
+    return f"sha256:{digest}"

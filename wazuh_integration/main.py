@@ -322,7 +322,7 @@ async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, a
             snapshot_mode = "always" if app_cfg["snapshot_always_send"] else "delta_with_periodic_forced"
 
             idempotency_digest = hashlib.sha256(current_signature.encode("utf-8")).hexdigest()
-            idempotency_key = f"wazuh-snapshot-{idempotency_digest}"
+            idempotency_key = f"sha256:{idempotency_digest}"
 
             state.update_checkpoint("snapshot_signature", current_signature)
             state.update_checkpoint("unchanged_cycles", str(unchanged_cycles))

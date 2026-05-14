@@ -431,7 +431,7 @@ while True:
             unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
 
             idempotency_digest = hashlib.sha256(current_signature.encode("utf-8")).hexdigest()
-            idempotency_key = f"openvas-snapshot-{idempotency_digest}"
+            idempotency_key = f"sha256:{idempotency_digest}"
 
             next_state = dict(state)
             next_state["sent"] = sent_map

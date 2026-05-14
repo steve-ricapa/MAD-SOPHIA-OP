@@ -61,7 +61,7 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
 def build_idempotency_key(company_id: int, scanner_type: str, event_type: str, snapshot_signature: str) -> str:
     raw = f"{company_id}:{scanner_type}:{event_type}:{snapshot_signature}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return f"uptimekuma-snapshot-{digest}"
+    return f"sha256:{digest}"
 
 
 def run_once(cfg, collector: UptimeKumaCollector, state: Dict[str, Any]) -> Dict[str, Any]:
