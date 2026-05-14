@@ -216,6 +216,13 @@ def _is_placeholder(value: str) -> bool:
     return any(token in low for token in ("your_", "changeme", "example", "replace_me", "<", ">"))
 
 
+def _clean_env_value(raw_value: str | None) -> str:
+    value = (raw_value or "").strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1].strip()
+    return value
+
+
 def _resolve_dns(host: str) -> tuple[list[str], str | None]:
     try:
         infos = socket.getaddrinfo(host, None)
@@ -400,10 +407,6 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
                 missing.append("GVM_USERNAME")
             if not (env.get("GVM_PASSWORD") or env.get("GVM_PASS") or "").strip():
                 missing.append("GVM_PASSWORD")
-    if spec.name == "uptimekuma":
-        has_auth = bool(env.get("UPTIME_KUMA_API_KEY")) or (bool(env.get("UPTIME_KUMA_USERNAME")) and bool(env.get("UPTIME_KUMA_PASSWORD")))
-        if not has_auth:
-            missing.append("UPTIME_KUMA_API_KEY or UPTIME_KUMA_USERNAME+PASSWORD")
     if missing or placeholders:
         norm = f"missing_env:{','.join(missing)}" if missing else f"placeholder_env:{','.join(placeholders)}"
         raw = f"missing={missing} placeholders={placeholders}"
@@ -850,10 +853,43 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
         auth_phase = _phase_result("auth", "PASS" if auth_ok else "FAIL", auth_start, None if auth_ok else f"http_{probe['status_code']}", probe["body_preview"] or probe["error_text"], {"endpoint": info_url, "http_status": probe["status_code"]})
         api_phase = _phase_result("api", "PASS" if probe["ok"] else "FAIL", api_start, None if probe["ok"] else f"http_{probe['status_code'] or probe['error_kind']}", probe["body_preview"] or probe["error_text"], {"endpoint": info_url, "http_status": probe["status_code"]})
     elif spec.name == "uptimekuma":
-        auth_phase = _phase_result("auth", "PASS", auth_start, evidence={"mode": "api_key_or_userpass_configured"})
         metrics_url = f"{env.get('UPTIME_KUMA_URL', '').rstrip('/')}{env.get('UPTIME_KUMA_METRICS_PATH', '/metrics')}"
-        probe = _http_probe_detailed("GET", metrics_url, timeout_seconds)
-        api_phase = _phase_result("api", "PASS" if probe["ok"] else "FAIL", api_start, None if probe["ok"] else f"http_{probe['status_code'] or probe['error_kind']}", probe["body_preview"] or probe["error_text"], {"endpoint": metrics_url, "http_status": probe["status_code"]})
+
+        kuma_api_key_id = _clean_env_value(env.get("UPTIME_KUMA_API_KEY_ID"))
+        kuma_api_key = _clean_env_value(env.get("UPTIME_KUMA_API_KEY"))
+        kuma_user = _clean_env_value(env.get("UPTIME_KUMA_USERNAME"))
+        kuma_password = _clean_env_value(env.get("UPTIME_KUMA_PASSWORD"))
+
+        auth: tuple[str, str] | None = None
+        auth_mode = "none"
+        if kuma_api_key:
+            auth = (kuma_api_key_id, kuma_api_key) if kuma_api_key_id else ("", kuma_api_key)
+            auth_mode = "api_key"
+        elif kuma_user and kuma_password:
+            auth = (kuma_user, kuma_password)
+            auth_mode = "userpass"
+
+        auth_phase = _phase_result(
+            "auth",
+            "PASS" if auth else "FAIL",
+            auth_start,
+            None if auth else "missing_auth",
+            None if auth else "Missing UPTIME_KUMA_API_KEY or UPTIME_KUMA_USERNAME+UPTIME_KUMA_PASSWORD",
+            {"mode": auth_mode},
+        )
+
+        if auth is None:
+            _add_skipped(phases, "api", "blocked_by_auth")
+        else:
+            probe = _http_probe_detailed("GET", metrics_url, timeout_seconds, auth=auth)
+            api_phase = _phase_result(
+                "api",
+                "PASS" if probe["ok"] else "FAIL",
+                api_start,
+                None if probe["ok"] else f"http_{probe['status_code'] or probe['error_kind']}",
+                probe["body_preview"] or probe["error_text"],
+                {"endpoint": metrics_url, "http_status": probe["status_code"]},
+            )
     elif spec.name == "nessus":
         props_url = f"{env.get('NESSUS_BASE_URL', '').rstrip('/')}/server/properties"
         headers = {"X-ApiKeys": f"accessKey={env.get('NESSUS_ACCESS_KEY', '')}; secretKey={env.get('NESSUS_SECRET_KEY', '')}"}
