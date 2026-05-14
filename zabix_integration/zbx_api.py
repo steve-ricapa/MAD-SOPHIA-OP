@@ -33,24 +33,12 @@ class ZabbixClient:
             return []
 
         base = raw.rstrip("/")
+        if base.endswith("api_jsonrpc.php"):
+            return [base]
+
         candidates = [base]
-
-        if not base.endswith("api_jsonrpc.php"):
-            candidates.append(base + "/api_jsonrpc.php")
-            candidates.append(base + "/zabbix/api_jsonrpc.php")
-
-        if base.startswith("http://"):
-            https_base = "https://" + base[len("http://") :]
-            candidates.append(https_base)
-            if not https_base.endswith("api_jsonrpc.php"):
-                candidates.append(https_base.rstrip("/") + "/api_jsonrpc.php")
-                candidates.append(https_base.rstrip("/") + "/zabbix/api_jsonrpc.php")
-        elif base.startswith("https://"):
-            http_base = "http://" + base[len("https://") :]
-            candidates.append(http_base)
-            if not http_base.endswith("api_jsonrpc.php"):
-                candidates.append(http_base.rstrip("/") + "/api_jsonrpc.php")
-                candidates.append(http_base.rstrip("/") + "/zabbix/api_jsonrpc.php")
+        candidates.append(base + "/api_jsonrpc.php")
+        candidates.append(base + "/zabbix/api_jsonrpc.php")
 
         unique: list[str] = []
         seen = set()

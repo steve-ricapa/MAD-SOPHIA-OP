@@ -529,6 +529,12 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
                     ctx = ssl.create_default_context()
                 else:
                     ctx = ssl._create_unverified_context()
+            elif spec.name == "insightvm":
+                verify_ssl = parse_bool(env.get("INSIGHTVM_VERIFY_SSL"), default=False)
+                if verify_ssl:
+                    ctx = ssl.create_default_context()
+                else:
+                    ctx = ssl._create_unverified_context()
             else:
                 ctx = ssl.create_default_context()
             with socket.create_connection((host, port), timeout=timeout_seconds) as sock:
@@ -543,6 +549,10 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
                 verify_ssl = parse_bool(env.get("NESSUS_VERIFY_SSL"), default=False)
                 evidence["verify_ssl"] = verify_ssl
                 evidence["cert_validation"] = "ca" if verify_ssl else "skipped_by_nessus_verify_ssl_false"
+            elif spec.name == "insightvm":
+                verify_ssl = parse_bool(env.get("INSIGHTVM_VERIFY_SSL"), default=False)
+                evidence["verify_ssl"] = verify_ssl
+                evidence["cert_validation"] = "ca" if verify_ssl else "skipped_by_insightvm_verify_ssl_false"
             phases.append(_phase_result("tls", "PASS", tls_start, evidence=evidence))
         except ssl.SSLError as exc:
             normalized_error = _normalize_tls_failure(exc)
