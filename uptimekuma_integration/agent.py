@@ -10,7 +10,8 @@ from typing import Any, Dict
 from collector import UptimeKumaCollector
 from config import load_config
 from deliver import deliver, write_json
-from summarizer import build_findings, build_report, build_status_signature
+from snapshot import build_snapshot_signature, decide_snapshot_send
+from summarizer import build_findings, build_report
 
 UPTIMEKUMA_BANNER = r"""
   _   _       _   _                 _  __
@@ -22,17 +23,31 @@ UPTIMEKUMA_BANNER = r"""
 """
 
 
+def _initial_state() -> Dict[str, Any]:
+    return {
+        "monitor_status": {},
+        "snapshot_signature": "",
+        "unchanged_cycles": 0,
+        "has_sent_once": False,
+        "last_idempotency_key": "",
+        "last_sent_at": "",
+        "last_send_result": "",
+    }
+
+
 def load_state(path: Path) -> Dict[str, Any]:
     if not path.exists():
-        return {"monitor_status": {}, "snapshot_signature": "", "unchanged_cycles": 0, "has_sent_once": False}
+        return _initial_state()
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
-            return {"monitor_status": {}, "snapshot_signature": "", "unchanged_cycles": 0, "has_sent_once": False}
-        return data
+            return _initial_state()
+        merged = _initial_state()
+        merged.update(data)
+        return merged
     except (json.JSONDecodeError, OSError):
-        return {"monitor_status": {}, "snapshot_signature": "", "unchanged_cycles": 0, "has_sent_once": False}
+        return _initial_state()
 
 
 def save_state(path: Path, state: Dict[str, Any]) -> None:
@@ -52,15 +67,25 @@ def build_idempotency_key(company_id: int, scanner_type: str, event_type: str, s
 def run_once(cfg, collector: UptimeKumaCollector, state: Dict[str, Any]) -> Dict[str, Any]:
     monitors = collector.collect()
     write_json(cfg.raw_snapshot_path, monitors)
-    current_signature = build_status_signature(monitors)
+    current_signature = build_snapshot_signature(monitors)
 
     prev_signature = str(state.get("snapshot_signature", ""))
     unchanged_cycles = int(state.get("unchanged_cycles", 0) or 0)
     has_sent_once = bool(state.get("has_sent_once", False))
 
-    changed = current_signature != prev_signature
-    unchanged_cycles = 0 if changed else unchanged_cycles + 1
-    should_send = changed or (unchanged_cycles >= cfg.force_send_every_cycles) or not has_sent_once
+    snapshot_decision = decide_snapshot_send(
+        current_signature=current_signature,
+        previous_signature=prev_signature,
+        unchanged_cycles=unchanged_cycles,
+        has_sent_once=has_sent_once,
+        force_send_every_cycles=int(cfg.force_send_every_cycles),
+        snapshot_always_send=bool(cfg.snapshot_always_send),
+    )
+    send_reason = str(snapshot_decision.get("reason", "snapshot_changed"))
+    should_send = bool(snapshot_decision.get("should_send", False))
+    snapshot_changed = bool(snapshot_decision.get("changed", False))
+    unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
+    snapshot_mode = "always" if cfg.snapshot_always_send else "delta_with_periodic_forced"
 
     next_state = dict(state)
     next_state["snapshot_signature"] = current_signature
@@ -68,9 +93,11 @@ def run_once(cfg, collector: UptimeKumaCollector, state: Dict[str, Any]) -> Dict
     idempotency_key = build_idempotency_key(cfg.company_id, cfg.scanner_type, cfg.event_type, current_signature)
 
     if not should_send:
+        next_state["last_send_result"] = "skipped_no_change"
         print(
             f"[{datetime.now(timezone.utc).isoformat()}] Sin cambios de estado "
-            f"(ciclo={unchanged_cycles}/{cfg.force_send_every_cycles})."
+            f"(ciclo={unchanged_cycles}/{cfg.force_send_every_cycles}) "
+            f"reason={send_reason} sig={current_signature[:16]}"
         )
         return next_state
 
@@ -78,7 +105,7 @@ def run_once(cfg, collector: UptimeKumaCollector, state: Dict[str, Any]) -> Dict
     findings_result = build_findings(
         monitors=monitors,
         previous_statuses={str(k): int(v) for k, v in prev_statuses.items()},
-        include_ongoing_non_up=not changed,
+        include_ongoing_non_up=not snapshot_changed or cfg.snapshot_always_send,
         include_all_monitors=cfg.include_all_monitors,
         include_extended_fields=cfg.include_extended_fields,
     )
@@ -93,6 +120,13 @@ def run_once(cfg, collector: UptimeKumaCollector, state: Dict[str, Any]) -> Dict
         idempotency_key=idempotency_key,
         monitors=monitors,
         findings=findings_result["findings"],
+        snapshot_signature=current_signature,
+        snapshot_mode=snapshot_mode,
+        send_reason=send_reason,
+        snapshot_changed=snapshot_changed,
+        mad_version=cfg.mad_version,
+        integration_version=cfg.integration_version,
+        source=cfg.source,
     )
 
     delivery_result = deliver(
@@ -116,10 +150,13 @@ def run_once(cfg, collector: UptimeKumaCollector, state: Dict[str, Any]) -> Dict
     next_state["unchanged_cycles"] = 0
     next_state["has_sent_once"] = True
     next_state["last_idempotency_key"] = idempotency_key
+    next_state["last_sent_at"] = datetime.now(timezone.utc).isoformat()
+    next_state["last_send_result"] = "sent" if delivery_result.get("sent") else ("queued" if delivery_result.get("queued") else "noop")
     print(
         f"[{datetime.now(timezone.utc).isoformat()}] Report sent | monitors={len(monitors)} "
         f"findings={len(report.get('findings', []))} sent={delivery_result.get('sent')} "
-        f"queued={delivery_result.get('queued')} flushed={delivery_result.get('flushed_from_queue')}"
+        f"queued={delivery_result.get('queued')} flushed={delivery_result.get('flushed_from_queue')} "
+        f"reason={send_reason} sig={current_signature[:16]}"
     )
     return next_state
 

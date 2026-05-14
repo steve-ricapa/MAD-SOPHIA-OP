@@ -1,6 +1,7 @@
-import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
+
+from snapshot import _scan_sort_key
 
 SEVERITY_MAP = {
     4: ("critical", 9.5),
@@ -9,25 +10,6 @@ SEVERITY_MAP = {
     1: ("low", 2.5),
     0: ("info", 0.0),
 }
-
-
-def _scan_sort_key(scan: Dict[str, Any]) -> Tuple[int, int]:
-    return (
-        int(scan.get("scan_id", 0) or 0),
-        int(scan.get("last_modification_date", 0) or 0),
-    )
-
-
-def build_snapshot_signature(scans: List[Dict[str, Any]]) -> str:
-    compact = [
-        {
-            "scan_id": int(s.get("scan_id", 0) or 0),
-            "last_modification_date": int(s.get("last_modification_date", 0) or 0),
-            "status": str(s.get("status", "")),
-        }
-        for s in sorted(scans, key=_scan_sort_key)
-    ]
-    return json.dumps(compact, separators=(",", ":"), sort_keys=True)
 
 
 def _severity_from_nessus(sev: Any) -> Tuple[str, float]:
@@ -125,6 +107,13 @@ def build_report(
     idempotency_key: str,
     scans: List[Dict[str, Any]],
     findings: List[Dict[str, Any]],
+    snapshot_signature: str = "",
+    snapshot_mode: str = "delta_with_periodic_forced",
+    send_reason: str = "no_change",
+    snapshot_changed: bool = False,
+    mad_version: str = "2.3.0",
+    integration_version: str = "1.0.0",
+    source: str = "mad-collector",
 ) -> Dict[str, Any]:
     scanned_at = datetime.now(timezone.utc).isoformat()
 
@@ -158,12 +147,22 @@ def build_report(
         "scanned_at": scanned_at,
         "cvss_max": cvss_max,
         "scanner_type": scanner_type,
-        "critical_count": critical_count,
-        "high_count": high_count,
-        "medium_count": medium_count,
-        "low_count": low_count,
-        "info_count": info_count,
-        "metrics": {
+        "results": {
+            "critical": critical_count,
+            "high": high_count,
+            "medium": medium_count,
+            "low": low_count,
+            "info": info_count,
+        },
+        "meta": {
+            "schema_version": "1.0",
+            "mad_version": mad_version,
+            "integration_version": integration_version,
+            "source": source,
+            "snapshot_signature": snapshot_signature,
+            "snapshot_mode": snapshot_mode,
+            "send_reason": send_reason,
+            "snapshot_changed": snapshot_changed,
             "scans_in_payload": len(scans),
             "findings_in_payload": len(findings),
             "completed_scans": sum(1 for s in scans if str(s.get("status", "")).lower() == "completed"),

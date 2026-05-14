@@ -10,7 +10,8 @@ from typing import Any, Dict
 from collector import NessusCollector
 from config import load_config
 from deliver import deliver, write_json
-from summarizer import build_findings, build_report, build_snapshot_signature
+from snapshot import build_snapshot_signature, decide_snapshot_send
+from summarizer import build_findings, build_report
 
 NESSUS_BANNER = r"""
   _   _                             
@@ -66,18 +67,30 @@ def run_once(cfg, collector: NessusCollector, state: Dict[str, Any]) -> Dict[str
     unchanged_cycles = int(state.get("unchanged_cycles", 0) or 0)
     has_sent_once = bool(state.get("has_sent_once", False))
 
-    changed = current_signature != prev_signature
-    unchanged_cycles = 0 if changed else unchanged_cycles + 1
-    should_send = changed or unchanged_cycles >= cfg.force_send_every_cycles or not has_sent_once
+    snapshot_decision = decide_snapshot_send(
+        current_signature=current_signature,
+        previous_signature=prev_signature,
+        unchanged_cycles=unchanged_cycles,
+        has_sent_once=has_sent_once,
+        force_send_every_cycles=int(cfg.force_send_every_cycles),
+        snapshot_always_send=bool(cfg.snapshot_always_send),
+    )
+    send_reason = str(snapshot_decision.get("reason", "snapshot_changed"))
+    should_send = bool(snapshot_decision.get("should_send", False))
+    snapshot_changed = bool(snapshot_decision.get("changed", False))
+    unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
+    snapshot_mode = "always" if cfg.snapshot_always_send else "delta_with_periodic_forced"
 
     next_state = dict(state)
     next_state["snapshot_signature"] = current_signature
     next_state["unchanged_cycles"] = unchanged_cycles
 
     if not should_send:
+        next_state["last_send_result"] = "skipped_no_change"
         print(
-            f"[{datetime.now(timezone.utc).isoformat()}] Sin cambios "
-            f"(ciclo={unchanged_cycles}/{cfg.force_send_every_cycles})."
+            f"[{datetime.now(timezone.utc).isoformat()}] Snapshot sin cambios "
+            f"(ciclo={unchanged_cycles}/{cfg.force_send_every_cycles}) "
+            f"reason={send_reason} sig={current_signature[:16]}"
         )
         return next_state
 
@@ -102,6 +115,13 @@ def run_once(cfg, collector: NessusCollector, state: Dict[str, Any]) -> Dict[str
         idempotency_key=idempotency_key,
         scans=scans,
         findings=findings_result["findings"],
+        snapshot_signature=current_signature,
+        snapshot_mode=snapshot_mode,
+        send_reason=send_reason,
+        snapshot_changed=snapshot_changed,
+        mad_version=cfg.mad_version,
+        integration_version=cfg.integration_version,
+        source=cfg.source,
     )
 
     delivery_result = deliver(
@@ -127,11 +147,13 @@ def run_once(cfg, collector: NessusCollector, state: Dict[str, Any]) -> Dict[str
     next_state["unchanged_cycles"] = 0
     next_state["has_sent_once"] = True
     next_state["last_idempotency_key"] = idempotency_key
+    next_state["last_send_result"] = "sent" if delivery_result.get("sent") else "queued"
 
     print(
         f"[{datetime.now(timezone.utc).isoformat()}] Report prepared | scans={len(scans)} "
         f"findings={len(report.get('findings', []))} sent={delivery_result.get('sent')} "
-        f"queued={delivery_result.get('queued')} flushed={delivery_result.get('flushed_from_queue')}"
+        f"queued={delivery_result.get('queued')} flushed={delivery_result.get('flushed_from_queue')} "
+        f"reason={send_reason}"
     )
     return next_state
 

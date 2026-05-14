@@ -32,6 +32,8 @@ OUTPUT_MODE = (_env("OPENVAS_OUTPUT_MODE", _env("OUTPUT_MODE", "console")) or "c
 COLLECTOR   = (_env("OPENVAS_COLLECTOR", _env("COLLECTOR", "simulated")) or "simulated").strip().lower()
 
 POLL_SECONDS = _env_int("OPENVAS_POLL_SECONDS", _env_int("POLL_SECONDS", 10))
+FORCE_SEND_EVERY_CYCLES = _env_int("OPENVAS_FORCE_SEND_EVERY_CYCLES", _env_int("FORCE_SEND_EVERY_CYCLES", 6))
+SNAPSHOT_ALWAYS_SEND = _env_bool("OPENVAS_SNAPSHOT_ALWAYS_SEND", _env_bool("SNAPSHOT_ALWAYS_SEND", False))
 STATE_PATH   = _env("OPENVAS_STATE_PATH", _env("STATE_PATH", "./state.json")) or "./state.json"
 META_MAX_KB  = _env_int("META_MAX_KB", 256)
 
@@ -67,6 +69,11 @@ FINDING_TEXT_MAX = _env_int("OPENVAS_FINDING_TEXT_MAX", _env_int("FINDING_TEXT_M
 DEBUG = _env_bool("OPENVAS_DEBUG", _env_bool("DEBUG", False))
 MAX_ERROR_REPEAT = _env_int("OPENVAS_MAX_ERROR_REPEAT", _env_int("MAX_ERROR_REPEAT", 3))
 
+# Versionado y fuente (contrato v1.0)
+MAD_VERSION = _env("MAD_VERSION", "2.3.0")
+OPENVAS_INTEGRATION_VERSION = _env("OPENVAS_INTEGRATION_VERSION", "1.0.0")
+SOURCE = _env("SOURCE", "mad-collector")
+
 # Estado (para evitar crecimiento infinito)
 STATE_TTL_DAYS = _env_int("STATE_TTL_DAYS", 30)
 STATE_MAX_ITEMS = _env_int("STATE_MAX_ITEMS", 5000)
@@ -88,6 +95,9 @@ def validate_config() -> None:
 
     if POLL_SECONDS <= 0:
         raise ValueError("POLL_SECONDS debe ser > 0")
+
+    if FORCE_SEND_EVERY_CYCLES < 1:
+        raise ValueError("OPENVAS_FORCE_SEND_EVERY_CYCLES debe ser >= 1")
 
     if not (1 <= GVM_PORT <= 65535):
         raise ValueError("GVM_PORT fuera de rango 1..65535")

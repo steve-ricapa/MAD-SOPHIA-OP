@@ -2,6 +2,7 @@
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 import argparse
+import hashlib
 import json
 import time
 import socket
@@ -14,13 +15,16 @@ import traceback
 
 from config import (
     OUTPUT_MODE, TXDXAI_INGEST_URL, TXDXAI_COMPANY_ID, TXDXAI_API_KEY,
-    COLLECTOR, POLL_SECONDS, STATE_PATH, META_MAX_KB,
+    COLLECTOR, POLL_SECONDS, FORCE_SEND_EVERY_CYCLES, SNAPSHOT_ALWAYS_SEND, STATE_PATH, META_MAX_KB,
     GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD, GVM_SOCKET, GVM_TRANSPORT,
     GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_TIMEOUT,
     DEBUG, MAX_ERROR_REPEAT, DETAIL_LEVEL, TOP_N, REPORT_MAX_KB, FINDING_TEXT_MAX,
     STATE_TTL_DAYS, STATE_MAX_ITEMS,
+    MAD_VERSION, OPENVAS_INTEGRATION_VERSION, SOURCE,
     validate_config,
 )
+
+from snapshot import build_snapshot_signature, decide_snapshot_send
 
 from services import (
     FileLock, load_state, save_state, purge_sent,
@@ -123,6 +127,54 @@ def _iter_by_lname(root: ET.Element, name: str):
     for el in root.iter():
         if _lname(el.tag) == name:
             yield el
+
+
+def _extract_report_id(task: ET.Element) -> str:
+    report_id = ""
+    for lr in _iter_by_lname(task, "last_report"):
+        rid = (lr.get("id") or "").strip()
+        if rid:
+            report_id = rid
+            break
+        for rp in lr.iter():
+            if _lname(rp.tag) == "report":
+                rid2 = (rp.get("id") or "").strip()
+                if rid2:
+                    report_id = rid2
+                    break
+            if report_id:
+                break
+        if report_id:
+            break
+    return report_id
+
+
+def _extract_task_snapshot_rows(tasks: list[ET.Element]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for task in tasks:
+        task_id = (task.get("id") or "").strip()
+        task_name = ""
+        status = ""
+        modification_time = ""
+        for el in list(task):
+            tag = _lname(el.tag)
+            if tag == "name":
+                task_name = (el.text or "").strip()
+            elif tag == "status":
+                status = (el.text or "").strip()
+            elif tag == "modification_time":
+                modification_time = (el.text or "").strip()
+
+        rows.append(
+            {
+                "task_id": task_id,
+                "task_name": task_name,
+                "report_id": _extract_report_id(task),
+                "status": status,
+                "modification_time": modification_time,
+            }
+        )
+    return rows
 
 
 def simulated_tasks_xml() -> str:
@@ -310,6 +362,7 @@ if GVM_SOCKET:
     print(f"[{now()}] GVM_SOCKET={GVM_SOCKET}")
 print(f"[{now()}] GVM_TRANSPORT={GVM_TRANSPORT}")
 print(f"[{now()}] DETAIL_LEVEL={DETAIL_LEVEL} | TOP_N={TOP_N} | REPORT_MAX_KB={REPORT_MAX_KB}KB | FINDING_TEXT_MAX={FINDING_TEXT_MAX}")
+print(f"[{now()}] SNAPSHOT_ALWAYS_SEND={SNAPSHOT_ALWAYS_SEND} | FORCE_SEND_EVERY_CYCLES={FORCE_SEND_EVERY_CYCLES}")
 
 lock_path = f"{STATE_PATH}.lock"
 args = parse_args()
@@ -329,6 +382,9 @@ while True:
             if not isinstance(sent_map, dict):
                 sent_map = {}
             sent_map = purge_sent(sent_map, max_age_days=int(STATE_TTL_DAYS), max_items=int(STATE_MAX_ITEMS))
+            prev_signature = str(state.get("snapshot_signature", ""))
+            unchanged_cycles = int(state.get("unchanged_cycles", 0) or 0)
+            has_sent_once = bool(state.get("has_sent_once", False))
 
             tasks_xml = None
             active_collector = (COLLECTOR or "simulated").strip().lower()
@@ -359,157 +415,186 @@ while True:
             tasks = list(_iter_by_lname(root, "task"))
             print(f"[{now()}] Tareas detectadas: {len(tasks)}")
 
-            for idx, task in enumerate(tasks):
-                try:
-                    # Buscar last_report id robusto (con/sin <report>)
-                    report_id = ""
+            task_rows = _extract_task_snapshot_rows(tasks)
+            current_signature = build_snapshot_signature(task_rows)
+            snapshot_decision = decide_snapshot_send(
+                current_signature=current_signature,
+                previous_signature=prev_signature,
+                unchanged_cycles=unchanged_cycles,
+                has_sent_once=has_sent_once,
+                force_send_every_cycles=int(FORCE_SEND_EVERY_CYCLES),
+                snapshot_always_send=bool(SNAPSHOT_ALWAYS_SEND),
+            )
+            send_reason = str(snapshot_decision.get("reason", "snapshot_changed"))
+            should_send = bool(snapshot_decision.get("should_send", False))
+            snapshot_changed = bool(snapshot_decision.get("changed", False))
+            unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
 
-                    # 1) last_report con id directo
-                    for lr in _iter_by_lname(task, "last_report"):
-                        rid = (lr.get("id") or "").strip()
-                        if rid:
-                            report_id = rid
-                            break
-                        # 2) last_report/report id
-                        for rp in lr.iter():
-                            if _lname(rp.tag) == "report":
-                                rid2 = (rp.get("id") or "").strip()
-                                if rid2:
-                                    report_id = rid2
-                                    break
-                            if report_id:
-                                break
-                        if report_id:
-                            break
+            idempotency_digest = hashlib.sha256(current_signature.encode("utf-8")).hexdigest()
+            idempotency_key = f"openvas-snapshot-{idempotency_digest}"
 
-                    if not report_id:
-                        if DEBUG:
-                            print(f"[{now()}] task[{idx}] sin report_id")
-                        continue
+            next_state = dict(state)
+            next_state["sent"] = sent_map
+            next_state["snapshot_signature"] = current_signature
+            next_state["unchanged_cycles"] = unchanged_cycles
+            next_state["last_idempotency_key"] = idempotency_key
 
-                    if report_id in sent_map:
-                        continue
+            if not should_send:
+                next_state["last_send_result"] = "skipped_no_change"
+                save_state(STATE_PATH, next_state)
+                print(
+                    f"[{now()}] Snapshot sin cambios "
+                    f"(ciclo={unchanged_cycles}/{FORCE_SEND_EVERY_CYCLES}) "
+                    f"reason={send_reason} sig={current_signature[:16]}"
+                )
+            else:
+                send_all_reports = send_reason in {"always_snapshot", "force_send_cycle", "first_snapshot"}
+                sent_in_cycle = 0
 
-                    task_id = (task.get("id") or "").strip()
-                    task_name = ""
-                    for el in list(task):
-                        if _lname(el.tag) == "name":
-                            task_name = (el.text or "").strip()
-                            break
+                for idx, task in enumerate(tasks):
+                    try:
+                        report_id = _extract_report_id(task)
 
-                    meta: dict[str, Any] = {"taskId": task_id, "taskName": task_name}
+                        if not report_id:
+                            if DEBUG:
+                                print(f"[{now()}] task[{idx}] sin report_id")
+                            continue
 
-                    severities = _parse_result_count(task)
+                        if not send_all_reports and report_id in sent_map:
+                            continue
 
-                    report_xml: str | None = None
-                    report_stats: dict[str, Any] | None = None
-                    findings: list[dict[str, Any]] | None = None
+                        task_id = (task.get("id") or "").strip()
+                        task_name = ""
+                        task_status = ""
+                        for el in list(task):
+                            tag = _lname(el.tag)
+                            if tag == "name":
+                                task_name = (el.text or "").strip()
+                            elif tag == "status":
+                                task_status = (el.text or "").strip().lower()
 
-                    need_report = (
-                        (severities is None)
-                        or _should_include_stats(DETAIL_LEVEL)
-                        or _should_include_findings(DETAIL_LEVEL)
-                    )
+                        severities = _parse_result_count(task)
 
-                    if need_report:
-                        if active_collector == "simulated":
-                            report_xml = simulated_report_xml(report_id)
-                        else:
-                            from gvm_client import GVMClient
-                            with GVMClient(
-                                GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD,
-                                socket_path=GVM_SOCKET,
-                                transport=GVM_TRANSPORT,
-                                cafile=GVM_TLS_CAFILE,
-                                certfile=GVM_TLS_CERTFILE,
-                                keyfile=GVM_TLS_KEYFILE,
-                                timeout=GVM_TIMEOUT,
-                            ) as client:
-                                report_xml = client.get_report(report_id)
+                        report_xml: str | None = None
+                        report_stats: dict[str, Any] | None = None
+                        findings: list[dict[str, Any]] | None = None
 
-                        if severities is None:
-                            severities = extract_severities(report_xml, max_kb=REPORT_MAX_KB)
+                        need_report = (
+                            (severities is None)
+                            or _should_include_stats(DETAIL_LEVEL)
+                            or _should_include_findings(DETAIL_LEVEL)
+                        )
 
-                        if _should_include_stats(DETAIL_LEVEL):
-                            report_stats = extract_report_stats(report_xml, max_kb=REPORT_MAX_KB)
+                        if need_report:
+                            if active_collector == "simulated":
+                                report_xml = simulated_report_xml(report_id)
+                            else:
+                                from gvm_client import GVMClient
+                                with GVMClient(
+                                    GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD,
+                                    socket_path=GVM_SOCKET,
+                                    transport=GVM_TRANSPORT,
+                                    cafile=GVM_TLS_CAFILE,
+                                    certfile=GVM_TLS_CERTFILE,
+                                    keyfile=GVM_TLS_KEYFILE,
+                                    timeout=GVM_TIMEOUT,
+                                ) as client:
+                                    report_xml = client.get_report(report_id)
 
-                        if _should_include_findings(DETAIL_LEVEL):
-                            findings = extract_findings(
-                                report_xml,
-                                top_n=int(TOP_N),
-                                text_max=int(FINDING_TEXT_MAX),
-                                max_kb=REPORT_MAX_KB
-                            )
+                            if severities is None:
+                                severities = extract_severities(report_xml, max_kb=REPORT_MAX_KB)
 
-                    metrics, entities = build_dashboard_blocks(severities, findings, report_stats)
+                            if _should_include_stats(DETAIL_LEVEL):
+                                report_stats = extract_report_stats(report_xml, max_kb=REPORT_MAX_KB)
 
-                    counts = severities or {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-                    total_hosts = int(report_stats.get("hosts_count", 0)) if report_stats else 0
-                    
-                    # Si no hay stats pero hay findings, contamos hosts Ãºnicos en findings
-                    if total_hosts == 0 and findings:
-                        total_hosts = len(set(f.get("host") for f in findings if f.get("host")))
+                            if _should_include_findings(DETAIL_LEVEL):
+                                findings = extract_findings(
+                                    report_xml,
+                                    top_n=int(TOP_N),
+                                    text_max=int(FINDING_TEXT_MAX),
+                                    max_kb=REPORT_MAX_KB,
+                                )
 
-                    cvss_max = 0.0
-                    if findings:
-                        cvss_max = max((float(f.get("cvss", 0.0)) for f in findings), default=0.0)
+                        metrics, entities = build_dashboard_blocks(severities, findings, report_stats)
 
-                    # ------------------------------------------------------------------
-                    # âœ… Production Optimization Refactor (snake_case & Restructured):
-                    # - scan_id, company_id, api_key, scanned_at, event_type
-                    # - scan_summary: contains all counters and metadata
-                    # - findings: detailed list from services.py
-                    # ------------------------------------------------------------------
-                    scanned_at = now()
+                        counts = severities or {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+                        total_hosts = int(report_stats.get("hosts_count", 0)) if report_stats else 0
+                        if total_hosts == 0 and findings:
+                            total_hosts = len(set(f.get("host") for f in findings if f.get("host")))
 
-                    payload: dict[str, Any] = {
-                        "scan_id": report_id,
-                        "company_id": TXDXAI_COMPANY_ID,
-                        "api_key": TXDXAI_API_KEY,
-                        "scanned_at": scanned_at,
-                        "event_type": "vuln_scan_report",
-                        
-                        # Requisito: Todos los contadores se mueven aquÃ­. SE ELIMINAN DE LA RAÃZ.
-                        "scan_summary": {
+                        cvss_max = 0.0
+                        if findings:
+                            cvss_max = max((float(f.get("cvss", 0.0)) for f in findings), default=0.0)
+
+                        scanned_at = now()
+
+                        payload: dict[str, Any] = {
                             "scan_id": report_id,
-                            "scan_name": task_name,
-                            "status": "completed",
-                            "total_hosts": total_hosts,
+                            "company_id": TXDXAI_COMPANY_ID,
+                            "api_key": TXDXAI_API_KEY,
+                            "idempotency_key": idempotency_key,
                             "scanned_at": scanned_at,
-                            "cvss_max": cvss_max,
-                            "critical_count": counts.get("critical", 0),
-                            "high_count": counts.get("high", 0),
-                            "medium_count": counts.get("medium", 0),
-                            "low_count": counts.get("low", 0),
-                            "info_count": counts.get("info", 0),
-                        },
-                        
-                        # El Backend (si sigue pidiendo 'results') podrÃ­a fallar si lo quitamos del todo,
-                        # pero la instrucciÃ³n dice "Remueve duplicados de la raÃ­z".
-                        # Si el backend lo REQUIERE para el OK 201, lo mantendremos como un objeto vacÃ­o 
-                        # o el set de counts hasta que se actualice el backend a snake_case.
-                        # "results": counts, # <- ELIMINADO SEGÃšN INSTRUCCIÃ“N
-                        
-                        "findings": findings or [],
-                    }
+                            "event_type": "vuln_scan_report",
+                            "scan_summary": {
+                                "scanner_type": "openvas",
+                                "scan_id": report_id,
+                                "scan_name": task_name,
+                                "status": task_status or "completed",
+                                "total_hosts": total_hosts,
+                                "scanned_at": scanned_at,
+                                "cvss_max": cvss_max,
+                                "results": {
+                                    "critical": counts.get("critical", 0),
+                                    "high": counts.get("high", 0),
+                                    "medium": counts.get("medium", 0),
+                                    "low": counts.get("low", 0),
+                                    "info": counts.get("info", 0),
+                                },
+                                "meta": {
+                                    "schema_version": "1.0",
+                                    "mad_version": MAD_VERSION,
+                                    "integration_version": OPENVAS_INTEGRATION_VERSION,
+                                    "source": SOURCE,
+                                    "snapshot_signature": current_signature,
+                                    "snapshot_mode": "always" if SNAPSHOT_ALWAYS_SEND else "delta_with_periodic_forced",
+                                    "snapshot_changed": snapshot_changed,
+                                    "send_reason": send_reason,
+                                    "task_id": task_id,
+                                    **metrics,
+                                },
+                                "entities": entities,
+                            },
+                            "findings": findings or [],
+                        }
 
-                    ok = emit_payload(
-                        output_mode=OUTPUT_MODE,
-                        url=TXDXAI_INGEST_URL,
-                        api_key=TXDXAI_API_KEY,
-                        company_id=TXDXAI_COMPANY_ID,
-                        payload=payload,
-                        timeout=15,
-                        require_https=True,
-                    )
+                        ok = emit_payload(
+                            output_mode=OUTPUT_MODE,
+                            url=TXDXAI_INGEST_URL,
+                            api_key=TXDXAI_API_KEY,
+                            company_id=TXDXAI_COMPANY_ID,
+                            payload=payload,
+                            timeout=15,
+                            require_https=True,
+                        )
 
-                    if ok:
-                        sent_map[report_id] = int(time.time())
-                        save_state(STATE_PATH, {"sent": sent_map})
+                        if ok:
+                            sent_map[report_id] = int(time.time())
+                            sent_in_cycle += 1
 
-                except Exception as e:
-                    handle_exception(f"cycle.task[{idx}].process", e, {"hint": "Fallo procesando task/report"})
-                    continue
+                    except Exception as e:
+                        handle_exception(f"cycle.task[{idx}].process", e, {"hint": "Fallo procesando task/report"})
+                        continue
+
+                next_state["sent"] = sent_map
+                next_state["has_sent_once"] = bool(has_sent_once or sent_in_cycle > 0)
+                next_state["last_send_result"] = "sent" if sent_in_cycle > 0 else "no_payload_sent"
+                if sent_in_cycle > 0:
+                    next_state["last_sent_at"] = now()
+                save_state(STATE_PATH, next_state)
+                print(
+                    f"[{now()}] Snapshot process | sent_reports={sent_in_cycle} "
+                    f"reason={send_reason} changed={snapshot_changed} sig={current_signature[:16]}"
+                )
 
     except KeyboardInterrupt:
         print(f"\n[{now()}] Detenido por usuario (Ctrl+C).")

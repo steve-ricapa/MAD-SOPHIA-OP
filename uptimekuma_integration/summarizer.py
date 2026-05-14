@@ -1,6 +1,7 @@
-import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
+
+from snapshot import _monitor_sort_key
 
 STATUS_META = {
     0: ("down", "critical", 9.5),
@@ -8,18 +9,6 @@ STATUS_META = {
     2: ("pending", "medium", 5.0),
     3: ("maintenance", "low", 2.0),
 }
-
-
-def _monitor_sort_key(monitor_id: str) -> Tuple[int, Any]:
-    monitor_id_str = str(monitor_id)
-    if monitor_id_str.isdigit():
-        return 0, int(monitor_id_str)
-    return 1, monitor_id_str
-
-
-def build_status_signature(monitors: Dict[str, Dict[str, Any]]) -> str:
-    compact = {mid: int(m.get("status", -1)) for mid, m in sorted(monitors.items(), key=lambda it: _monitor_sort_key(it[0]))}
-    return json.dumps(compact, sort_keys=True, separators=(",", ":"))
 
 
 def _status_label(status: int) -> str:
@@ -258,6 +247,13 @@ def build_report(
     idempotency_key: str,
     monitors: Dict[str, Dict[str, Any]],
     findings: list[Dict[str, Any]],
+    snapshot_signature: str,
+    snapshot_mode: str,
+    send_reason: str,
+    snapshot_changed: bool,
+    mad_version: str = "2.3.0",
+    integration_version: str = "1.0.0",
+    source: str = "mad-collector",
 ) -> Dict[str, Any]:
     scanned_at = datetime.now(timezone.utc).isoformat()
     counts = summarize_counts(monitors)
@@ -310,12 +306,22 @@ def build_report(
         "scanned_at": scanned_at,
         "cvss_max": cvss_max,
         "scanner_type": scanner_type,
-        "critical_count": counts.get("down", 0),
-        "high_count": counts.get("pending", 0),
-        "medium_count": counts.get("maintenance", 0),
-        "low_count": counts.get("up", 0),
-        "info_count": counts.get("unknown", 0),
-        "metrics": {
+        "results": {
+            "critical": counts.get("down", 0),
+            "high": counts.get("pending", 0),
+            "medium": counts.get("maintenance", 0),
+            "low": counts.get("up", 0),
+            "info": counts.get("unknown", 0),
+        },
+        "meta": {
+            "schema_version": "1.0",
+            "mad_version": mad_version,
+            "integration_version": integration_version,
+            "source": source,
+            "snapshot_signature": snapshot_signature,
+            "snapshot_mode": snapshot_mode,
+            "snapshot_changed": bool(snapshot_changed),
+            "send_reason": send_reason,
             "up_count": counts.get("up", 0),
             "down_count": counts.get("down", 0),
             "pending_count": counts.get("pending", 0),

@@ -25,6 +25,7 @@ class Config:
     backoff_seconds: int
     max_scans_per_cycle: int
     force_send_every_cycles: int
+    snapshot_always_send: bool
     include_all_findings: bool
     queue_enabled: bool
     queue_dir: Path
@@ -33,6 +34,9 @@ class Config:
     debug_report_path: Path
     last_payload_path: Path
     raw_snapshot_path: Path
+    mad_version: str
+    integration_version: str
+    source: str
     scan_ids_filter: Optional[set[int]]
     folder_id_filter: Optional[int]
 
@@ -95,6 +99,7 @@ def load_config() -> Config:
     backoff_seconds = int(os.getenv("NESSUS_BACKOFF_SECONDS") or os.getenv("BACKOFF_SECONDS", "5"))
     max_scans_per_cycle = int(os.getenv("NESSUS_MAX_SCANS_PER_CYCLE", "5"))
     force_send_every_cycles = int(os.getenv("NESSUS_FORCE_SEND_EVERY_CYCLES") or os.getenv("FORCE_SEND_EVERY_CYCLES", "10"))
+    snapshot_always_send = _env_bool("NESSUS_SNAPSHOT_ALWAYS_SEND", _env_bool("SNAPSHOT_ALWAYS_SEND", False))
     include_all_findings = _env_bool("NESSUS_INCLUDE_ALL_FINDINGS", _env_bool("INCLUDE_ALL_FINDINGS", True))
 
     queue_enabled = _env_bool("NESSUS_QUEUE_ENABLED", _env_bool("QUEUE_ENABLED", True))
@@ -104,6 +109,9 @@ def load_config() -> Config:
     debug_report_raw = os.getenv("DEBUG_REPORT_PATH", "debug_report.json")
     last_payload_raw = os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
     raw_snapshot_raw = os.getenv("NESSUS_RAW_SNAPSHOT_PATH") or os.getenv("RAW_SNAPSHOT_PATH", "raw_scans_snapshot.json")
+    mad_version = (os.getenv("MAD_VERSION") or "2.3.0").strip()
+    integration_version = (os.getenv("NESSUS_INTEGRATION_VERSION") or os.getenv("INTEGRATION_VERSION", "1.0.0")).strip()
+    source = (os.getenv("SOURCE") or "mad-collector").strip()
     queue_dir_raw = os.getenv("NESSUS_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
 
     scan_ids_filter = _parse_scan_ids(os.getenv("NESSUS_SCAN_IDS"))
@@ -155,6 +163,7 @@ def load_config() -> Config:
         backoff_seconds=backoff_seconds,
         max_scans_per_cycle=max_scans_per_cycle,
         force_send_every_cycles=force_send_every_cycles,
+        snapshot_always_send=snapshot_always_send,
         include_all_findings=include_all_findings,
         queue_enabled=queue_enabled,
         queue_dir=queue_dir,
@@ -163,6 +172,9 @@ def load_config() -> Config:
         debug_report_path=debug_report_path,
         last_payload_path=last_payload_path,
         raw_snapshot_path=raw_snapshot_path,
+        mad_version=mad_version,
+        integration_version=integration_version,
+        source=source,
         scan_ids_filter=scan_ids_filter,
         folder_id_filter=folder_id_filter,
     )

@@ -3,6 +3,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
+for _module_name in ("agent", "collector", "summarizer", "deliver", "config", "snapshot"):
+    sys.modules.pop(_module_name, None)
+
+
 NESSUS_DIR = Path(__file__).resolve().parents[1]
 if str(NESSUS_DIR) not in sys.path:
     sys.path.insert(0, str(NESSUS_DIR))
@@ -14,6 +18,7 @@ def _cfg(tmp_path, **overrides):
     base = {
         "raw_snapshot_path": tmp_path / "raw.json",
         "force_send_every_cycles": 3,
+        "snapshot_always_send": False,
         "include_all_findings": True,
         "company_id": 4,
         "scanner_type": "nessus",
@@ -30,6 +35,9 @@ def _cfg(tmp_path, **overrides):
         "queue_dir": tmp_path / "queue",
         "queue_flush_max": 10,
         "debug_report_path": tmp_path / "debug_report.json",
+        "mad_version": "2.3.0",
+        "integration_version": "1.0.0",
+        "source": "mad-collector",
     }
     base.update(overrides)
     return SimpleNamespace(**base)

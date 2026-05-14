@@ -69,13 +69,18 @@ class Aggregator:
             "compliance": compliance,
         }
 
-    def create_report(self, processed_alerts, agent_summary, config):
-        """Creates the final unified report envelope."""
+    def create_report(self, processed_alerts, agent_summary, config, *,
+                      idempotency_key="", snapshot_signature="", snapshot_mode="delta_with_periodic_forced",
+                      send_reason="no_change", snapshot_changed=False,
+                      mad_version="2.3.0", integration_version="1.0.0", source="mad-collector"):
+        """Creates the final unified report envelope (snapshot contract v1.0)."""
         now = datetime.now(timezone.utc).isoformat()
         
         # Calculate trends and tops from the batch
         trends = self.calculate_trends(processed_alerts)
         tops = self.calculate_tops(processed_alerts)
+
+        severity_levels = trends.get('severity_levels', {})
 
         scan_summary = {
             "scan_id": config['scan_id'],
@@ -85,28 +90,38 @@ class Aggregator:
             "scanned_at": now,
             "cvss_max": 0.0,
             "scanner_type": "wazuh",
-            "disaster_count": trends['severity_levels'].get('critical', 0),
-            "high_count": trends['severity_levels'].get('high', 0),
-            "average_count": trends['severity_levels'].get('medium', 0),
-            "warning_count": trends['severity_levels'].get('low', 0),
-            "information_count": 0,
-            "not_classified_count": 0,
-            "metrics": {
+            "results": {
+                "critical": severity_levels.get('critical', 0),
+                "high": severity_levels.get('high', 0),
+                "medium": severity_levels.get('medium', 0),
+                "low": severity_levels.get('low', 0),
+                "info": 0,
+            },
+            "meta": {
+                "schema_version": "1.0",
+                "mad_version": mad_version,
+                "integration_version": integration_version,
+                "source": source,
+                "snapshot_signature": snapshot_signature,
+                "snapshot_mode": snapshot_mode,
+                "send_reason": send_reason,
+                "snapshot_changed": snapshot_changed,
                 "trends": trends,
-                "tops": tops
-            }
+                "tops": tops,
+            },
         }
 
         return {
             "scan_id": config['scan_id'],
             "company_id": config['company_id'],
             "api_key": config['api_key'],
+            "idempotency_key": idempotency_key,
             "scanned_at": now,
             "event_type": "vuln_scan_report",
             "scanner_type": "wazuh",
             "agent_type": "wazuh",
             "scan_summary": scan_summary,
-            "findings": processed_alerts
+            "findings": processed_alerts,
         }
 
     def calculate_trends(self, alerts):

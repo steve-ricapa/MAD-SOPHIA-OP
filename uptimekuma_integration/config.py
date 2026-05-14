@@ -23,6 +23,7 @@ class Config:
     http_retries: int
     backoff_seconds: int
     force_send_every_cycles: int
+    snapshot_always_send: bool
     include_all_monitors: bool
     include_extended_fields: bool
     queue_enabled: bool
@@ -32,6 +33,9 @@ class Config:
     debug_report_path: Path
     last_payload_path: Path
     raw_snapshot_path: Path
+    mad_version: str
+    integration_version: str
+    source: str
     kuma_user: Optional[str]
     kuma_password: Optional[str]
     kuma_api_key_id: Optional[str]
@@ -83,6 +87,7 @@ def load_config() -> Config:
     http_retries = int(os.getenv("UPTIME_HTTP_RETRIES") or os.getenv("HTTP_RETRIES", "3"))
     backoff_seconds = int(os.getenv("UPTIME_BACKOFF_SECONDS") or os.getenv("BACKOFF_SECONDS", "5"))
     force_send_every_cycles = int(os.getenv("UPTIME_FORCE_SEND_EVERY_CYCLES") or os.getenv("FORCE_SEND_EVERY_CYCLES", "6"))
+    snapshot_always_send = _env_bool("UPTIME_SNAPSHOT_ALWAYS_SEND", _env_bool("SNAPSHOT_ALWAYS_SEND", False))
     include_all_monitors = _env_bool("UPTIME_INCLUDE_ALL_MONITORS", _env_bool("INCLUDE_ALL_MONITORS", False))
     include_extended_fields = _env_bool("UPTIME_INCLUDE_EXTENDED_FIELDS", _env_bool("INCLUDE_EXTENDED_FIELDS", False))
     queue_enabled = _env_bool("UPTIME_QUEUE_ENABLED", _env_bool("QUEUE_ENABLED", True))
@@ -93,6 +98,10 @@ def load_config() -> Config:
     last_payload_raw = os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
     raw_snapshot_raw = os.getenv("UPTIME_RAW_SNAPSHOT_PATH") or os.getenv("RAW_SNAPSHOT_PATH", "raw_monitors_snapshot.json")
     queue_dir_raw = os.getenv("UPTIME_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
+
+    mad_version = (os.getenv("MAD_VERSION") or "2.3.0").strip()
+    integration_version = (os.getenv("UPTIMEKUMA_INTEGRATION_VERSION") or os.getenv("INTEGRATION_VERSION", "1.0.0")).strip()
+    source = (os.getenv("SOURCE") or "mad-collector").strip()
 
     kuma_user = os.getenv("UPTIME_KUMA_USERNAME")
     kuma_password = os.getenv("UPTIME_KUMA_PASSWORD")
@@ -142,6 +151,7 @@ def load_config() -> Config:
         http_retries=http_retries,
         backoff_seconds=backoff_seconds,
         force_send_every_cycles=force_send_every_cycles,
+        snapshot_always_send=snapshot_always_send,
         include_all_monitors=include_all_monitors,
         include_extended_fields=include_extended_fields,
         queue_enabled=queue_enabled,
@@ -151,6 +161,9 @@ def load_config() -> Config:
         debug_report_path=debug_report_path,
         last_payload_path=last_payload_path,
         raw_snapshot_path=raw_snapshot_path,
+        mad_version=mad_version,
+        integration_version=integration_version,
+        source=source,
         kuma_user=kuma_user.strip() if kuma_user else None,
         kuma_password=kuma_password.strip() if kuma_password else None,
         kuma_api_key_id=kuma_api_key_id.strip() if kuma_api_key_id else None,

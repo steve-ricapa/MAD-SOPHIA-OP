@@ -6,6 +6,10 @@ import pytest
 import requests
 
 
+for _module_name in ("collector", "summarizer", "agent", "deliver", "config"):
+    sys.modules.pop(_module_name, None)
+
+
 NESSUS_DIR = Path(__file__).resolve().parents[1]
 if str(NESSUS_DIR) not in sys.path:
     sys.path.insert(0, str(NESSUS_DIR))

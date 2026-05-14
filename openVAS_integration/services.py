@@ -125,6 +125,17 @@ def format_exception(step: str, e: BaseException, context: Optional[dict[str, An
     return "\n".join(parts)
 
 
+def map_status(raw_status: str) -> str:
+    value = (raw_status or "").strip().lower()
+    if value in {"running", "run", "in progress", "in_progress"}:
+        return "running"
+    if value in {"pending", "queued", "requested"}:
+        return "pending"
+    if value in {"completed", "done", "finished"}:
+        return "completed"
+    return value or "unknown"
+
+
 class FileLock:
     def __init__(self, lock_path: str):
         self.lock_path = lock_path
@@ -625,6 +636,11 @@ def emit_payload(
                 payload["company_id"] = company_id
 
         headers = {"Content-Type": "application/json"}
+
+        # Idempotency-Key para dedup a nivel HTTP
+        idem_key = payload.get("idempotency_key", "")
+        if idem_key:
+            headers["Idempotency-Key"] = idem_key
 
         # Fallbacks: por si backend tambiÃ©n acepta header
         if api_key:

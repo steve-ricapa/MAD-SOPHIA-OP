@@ -1,9 +1,10 @@
 import argparse
 import asyncio
+import hashlib
+import json
 import os
 import sys
 import uuid
-import json
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
@@ -14,6 +15,7 @@ from src.api import WazuhApiClient
 from src.aggregator import Aggregator
 from src.state import StateStore
 from src.sender import Sender
+from snapshot import build_snapshot_signature, decide_snapshot_send
 
 
 WAZUH_BANNER = r"""
@@ -272,34 +274,25 @@ async def retry_failed_payloads(sender, app_cfg):
 
 
 async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg, single_run=False):
-    """Loop to fetch, deduplicate, archive and send alerts."""
-    empty_cycles = 0
-    max_empty_cycles = max(1, int(app_cfg["heartbeat_cycles"]))
-
+    """Snapshot-based loop: fetch full window, compute signature, decide send."""
     while True:
         try:
-            default_time = (datetime.now(timezone.utc) - timedelta(hours=app_cfg["initial_lookback_hours"])).isoformat()
-            last_ts = state.get_checkpoint("alerts_timestamp", default=None)
+            window_end = datetime.now(timezone.utc)
+            window_start = window_end - timedelta(hours=app_cfg["initial_lookback_hours"])
+            w_start_str = window_start.isoformat()
+            w_end_str = window_end.isoformat()
 
-            if last_ts is None:
-                logger.info(f"Fresh start: no checkpoint found, polling since {default_time}")
-                last_ts = default_time
-                state.update_checkpoint("alerts_timestamp", last_ts)
-            else:
-                logger.info(f"Polling alerts since {last_ts}...")
+            logger.info("Snapshot cycle | window=[{}, {}]", w_start_str, w_end_str)
 
             batch_size = int(app_cfg["alert_batch_size"])
-            raw_alerts = await indexer.get_new_alerts(last_ts, limit=batch_size)
+            raw_alerts = await indexer.get_new_alerts(w_start_str, limit=batch_size)
             raw_count = len(raw_alerts)
 
             min_level = int(app_cfg["min_rule_level"])
             raw_alerts = [a for a in raw_alerts if int(a.get('rule', {}).get('level', 0)) >= min_level]
+            filtered_count = len(raw_alerts)
 
-            unique_alerts = []
-            for alert in raw_alerts:
-                alert_id = alert.get("_id")
-                if not state.is_alert_processed(alert_id):
-                    unique_alerts.append(alert)
+            findings = [aggregator.normalize_alert(a) for a in raw_alerts]
 
             agent_summary = state.get_checkpoint("agent_summary", default=None)
             if agent_summary:
@@ -308,36 +301,69 @@ async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, a
                 except (json.JSONDecodeError, TypeError):
                     agent_summary = None
 
-            scan_id = str(uuid.uuid4())
-            config = {"scan_id": scan_id, "company_id": company_id, "api_key": api_key}
+            prev_signature = str(state.get_checkpoint("snapshot_signature", ""))
+            unchanged_cycles = int(state.get_checkpoint("unchanged_cycles", "0") or "0")
+            has_sent_once = parse_bool(state.get_checkpoint("has_sent_once", "false"), default=False)
 
-            if raw_alerts:
-                empty_cycles = 0
-                logger.success(
-                    "Security feed: raw={} | after_level_filter={} | unique_for_send={}",
-                    raw_count,
-                    len(raw_alerts),
-                    len(unique_alerts),
+            current_signature = build_snapshot_signature(findings, agent_summary, w_start_str, w_end_str)
+
+            snapshot_decision = decide_snapshot_send(
+                current_signature=current_signature,
+                previous_signature=prev_signature,
+                unchanged_cycles=unchanged_cycles,
+                has_sent_once=has_sent_once,
+                force_send_every_cycles=int(app_cfg["force_send_every_cycles"]),
+                snapshot_always_send=bool(app_cfg["snapshot_always_send"]),
+            )
+            send_reason = str(snapshot_decision.get("reason", "snapshot_changed"))
+            should_send = bool(snapshot_decision.get("should_send", False))
+            snapshot_changed = bool(snapshot_decision.get("changed", False))
+            unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
+            snapshot_mode = "always" if app_cfg["snapshot_always_send"] else "delta_with_periodic_forced"
+
+            idempotency_digest = hashlib.sha256(current_signature.encode("utf-8")).hexdigest()
+            idempotency_key = f"wazuh-snapshot-{idempotency_digest}"
+
+            state.update_checkpoint("snapshot_signature", current_signature)
+            state.update_checkpoint("unchanged_cycles", str(unchanged_cycles))
+            state.update_checkpoint("last_idempotency_key", idempotency_key)
+
+            if not should_send:
+                state.update_checkpoint("last_send_result", "skipped_no_change")
+                logger.info(
+                    "Snapshot sin cambios | cycle_unchanged={} reason={} sig={}",
+                    unchanged_cycles,
+                    send_reason,
+                    current_signature[:16],
                 )
+            else:
+                scan_id = str(uuid.uuid4())
+                config = {"scan_id": scan_id, "company_id": company_id, "api_key": api_key}
 
-                if not unique_alerts:
-                    new_last_ts = raw_alerts[-1]["timestamp"]
-                    state.update_checkpoint("alerts_timestamp", new_last_ts)
-                    state.purge_processed_alerts(app_cfg["dedup_retention_days"])
-                    logger.info("All alerts in this cycle were already processed; no payload sent")
-                    continue
-
-                processed = [aggregator.normalize_alert(a) for a in unique_alerts]
-                report = aggregator.create_report(processed, agent_summary, config)
+                report = aggregator.create_report(
+                    findings, agent_summary, config,
+                    idempotency_key=idempotency_key,
+                    snapshot_signature=current_signature,
+                    snapshot_mode=snapshot_mode,
+                    send_reason=send_reason,
+                    snapshot_changed=snapshot_changed,
+                    mad_version=app_cfg["mad_version"],
+                    integration_version=app_cfg["integration_version"],
+                    source=app_cfg["source"],
+                )
 
                 timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 archive_json(
                     Path(app_cfg["raw_dir"]) / f"raw_{timestamp}_{scan_id}.json",
                     {
                         "scan_id": scan_id,
-                        "checkpoint_used": last_ts,
+                        "window": {"start": w_start_str, "end": w_end_str},
+                        "raw_count": raw_count,
+                        "filtered_count": filtered_count,
+                        "finding_count": len(findings),
+                        "snapshot_signature": current_signature,
+                        "send_reason": send_reason,
                         "raw_alerts": raw_alerts,
-                        "unique_alerts": unique_alerts,
                     },
                 )
                 archive_json(
@@ -346,68 +372,56 @@ async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, a
                 )
 
                 dry_run = parse_bool(app_cfg["dry_run"], default=False)
+                success = False
 
                 if dry_run:
-                    sm = report.get('scan_summary', {})
                     logger.info("DRY_RUN enabled: payload not sent")
                     logger.info(
-                        "Scan ID: {} | findings={} | critical={} | high={}",
+                        "Snapshot | scan_id={} | findings={} | reason={} | results={}",
                         scan_id,
-                        len(report.get("findings", [])),
-                        sm.get("disaster_count", 0),
-                        sm.get("high_count", 0),
+                        len(findings),
+                        send_reason,
+                        report["scan_summary"]["results"],
                     )
                     success = True
                 else:
                     success = await sender.send_report(report)
 
                 if success:
-                    new_last_ts = raw_alerts[-1]["timestamp"]
-                    state.update_checkpoint("alerts_timestamp", new_last_ts)
-                    state.mark_alerts_processed([a.get("_id") for a in unique_alerts])
-                    state.purge_processed_alerts(app_cfg["dedup_retention_days"])
-                    logger.debug("Sync checkpoint advanced to {}", new_last_ts)
+                    state.update_checkpoint("has_sent_once", "true")
+                    state.update_checkpoint("last_send_result", "sent")
+                    state.update_checkpoint("last_sent_at", datetime.now(timezone.utc).isoformat())
+                    logger.success(
+                        "Snapshot sent | scan_id={} | findings={} | reason={} | changed={} | sig={}",
+                        scan_id,
+                        len(findings),
+                        send_reason,
+                        snapshot_changed,
+                        current_signature[:16],
+                    )
                 else:
                     failure_kind = sender.last_failure_kind or "unknown"
                     status_code = sender.last_status_code
+                    state.update_checkpoint("last_send_result", f"failed_{failure_kind}")
 
                     if failure_kind in NON_RETRYABLE_FAILURE_KINDS:
                         logger.error(
-                            "Non-retryable backend failure | kind={} | status={} | checkpoint_not_advanced=true | cooldown={}s",
+                            "Non-retryable backend failure | kind={} | status={} | cooldown={}s",
                             failure_kind,
                             status_code,
                             app_cfg["non_retryable_backoff_seconds"],
                         )
                         await asyncio.sleep(int(app_cfg["non_retryable_backoff_seconds"]))
-                        continue
-
-                    failed_name = f"failed_{timestamp}_{scan_id}.json"
-                    archive_json(Path(app_cfg["failed_dir"]) / failed_name, report)
-                    logger.error(
-                        "Payload send failed (retryable). Saved for retry/inspection: {}",
-                        failed_name,
-                    )
-            else:
-                empty_cycles += 1
-                if empty_cycles >= max_empty_cycles:
-                    if not app_cfg["send_heartbeat"]:
-                        logger.info("Security feed idle, heartbeat disabled")
                     else:
-                        logger.info("Security feed idle, sending heartbeat")
-                        heartbeat_report = aggregator.create_report([], agent_summary, config)
-                        heartbeat_report['event_type'] = "wazuh_heartbeat"
-
-                        if parse_bool(app_cfg["dry_run"], default=False):
-                            logger.info("Heartbeat skipped (DRY_RUN)")
-                        else:
-                            await sender.send_report(heartbeat_report)
-
-                    empty_cycles = 0
-                else:
-                    logger.debug(f"Quiet period... cycle {empty_cycles}")
+                        failed_name = f"failed_{timestamp}_{scan_id}.json"
+                        archive_json(Path(app_cfg["failed_dir"]) / failed_name, report)
+                        logger.error(
+                            "Snapshot send failed (retryable). Saved: {}",
+                            failed_name,
+                        )
 
         except Exception as e:
-            logger.exception(f"Error in poll_alerts loop: {e}")
+            logger.exception(f"Error in poll_alerts cycle: {e}")
 
         if single_run:
             logger.info("Single-run mode: poll_alerts completed one cycle.")
@@ -500,15 +514,23 @@ async def main():
     for p in (raw_dir, payload_dir, failed_dir, logs_dir):
         p.mkdir(parents=True, exist_ok=True)
 
+    force_send_every_cycles = int(os.getenv("WAZUH_FORCE_SEND_EVERY_CYCLES") or os.getenv("FORCE_SEND_EVERY_CYCLES", "10"))
+    snapshot_always_send = parse_bool(os.getenv("WAZUH_SNAPSHOT_ALWAYS_SEND") or os.getenv("SNAPSHOT_ALWAYS_SEND"), default=False)
+    mad_version = (os.getenv("MAD_VERSION") or "2.3.0").strip()
+    wazuh_integration_version = (os.getenv("WAZUH_INTEGRATION_VERSION") or os.getenv("INTEGRATION_VERSION", "1.0.0")).strip()
+    source = (os.getenv("SOURCE") or "mad-collector").strip()
+
     app_cfg = {
         "poll_interval_alerts": int(os.getenv("POLL_INTERVAL_ALERTS", 30)),
         "initial_lookback_hours": int(os.getenv("INITIAL_LOOKBACK_HOURS", 2)),
         "alert_batch_size": int(os.getenv("ALERT_BATCH_SIZE", 500)),
         "retry_failed_interval_seconds": int(os.getenv("RETRY_FAILED_INTERVAL_SECONDS", 30)),
         "min_rule_level": int(os.getenv("MIN_RULE_LEVEL", 7)),
-        "dedup_retention_days": int(os.getenv("DEDUP_RETENTION_DAYS", 7)),
-        "heartbeat_cycles": int(os.getenv("HEARTBEAT_EMPTY_CYCLES", 6)),
-        "send_heartbeat": parse_bool(os.getenv("SEND_HEARTBEAT", "false"), default=False),
+        "force_send_every_cycles": force_send_every_cycles,
+        "snapshot_always_send": snapshot_always_send,
+        "mad_version": mad_version,
+        "integration_version": wazuh_integration_version,
+        "source": source,
         "dry_run": os.getenv("DRY_RUN", "false"),
         "non_retryable_backoff_seconds": int(os.getenv("NON_RETRYABLE_BACKOFF_SECONDS", 300)),
         "startup_menu_enabled": parse_bool(os.getenv("STARTUP_MENU_ENABLED", "true"), default=True),

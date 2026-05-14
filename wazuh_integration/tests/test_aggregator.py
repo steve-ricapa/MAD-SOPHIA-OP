@@ -31,10 +31,23 @@ class TestAggregator(unittest.TestCase):
             processed_alerts=[],
             agent_summary={"total": 5},
             config={"scan_id": "scan-1", "company_id": 1, "api_key": "k"},
+            idempotency_key="test-key",
+            snapshot_signature="test-sig",
+            send_reason="first_snapshot",
+            snapshot_changed=True,
+            mad_version="2.3.0",
+            integration_version="1.0.0",
+            source="mad-collector",
         )
         self.assertEqual(report["event_type"], "vuln_scan_report")
         self.assertEqual(report["scanner_type"], "wazuh")
+        self.assertEqual(report["idempotency_key"], "test-key")
         self.assertEqual(report["scan_summary"]["total_hosts"], 5)
+        self.assertEqual(report["scan_summary"]["results"]["critical"], 0)
+        self.assertEqual(report["scan_summary"]["meta"]["schema_version"], "1.0")
+        self.assertEqual(report["scan_summary"]["meta"]["snapshot_signature"], "test-sig")
+        self.assertEqual(report["scan_summary"]["meta"]["send_reason"], "first_snapshot")
+        self.assertEqual(report["scan_summary"]["meta"]["snapshot_changed"], True)
 
 
 if __name__ == "__main__":

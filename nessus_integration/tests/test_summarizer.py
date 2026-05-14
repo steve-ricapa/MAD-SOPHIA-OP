@@ -2,11 +2,16 @@ import sys
 from pathlib import Path
 
 
+for _module_name in ("summarizer", "collector", "agent", "deliver", "config", "snapshot"):
+    sys.modules.pop(_module_name, None)
+
+
 NESSUS_DIR = Path(__file__).resolve().parents[1]
 if str(NESSUS_DIR) not in sys.path:
     sys.path.insert(0, str(NESSUS_DIR))
 
-from summarizer import build_findings, build_report, build_snapshot_signature
+from snapshot import build_snapshot_signature
+from summarizer import build_findings, build_report
 
 
 def test_build_snapshot_signature_stable():
@@ -61,10 +66,16 @@ def test_build_report_counts_occurrences():
         idempotency_key="idempo",
         scans=scans,
         findings=findings,
+        mad_version="2.3.0",
+        integration_version="1.0.0",
+        source="mad-collector",
     )
 
     summary = report["scan_summary"]
-    assert summary["critical_count"] == 2
-    assert summary["high_count"] == 3
-    assert summary["info_count"] == 1
+    assert summary["results"]["critical"] == 2
+    assert summary["results"]["high"] == 3
+    assert summary["results"]["info"] == 1
     assert summary["total_hosts"] == 10
+    assert summary["scanner_type"] == "nessus"
+    assert summary["meta"]["schema_version"] == "1.0"
+    assert summary["meta"]["mad_version"] == "2.3.0"
