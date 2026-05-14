@@ -663,7 +663,7 @@ def emit_payload(
         )
         _save_payload_debug(payload, r.status_code, (r.text or "")[:1000])
 
-        if 200 <= r.status_code < 300:
+        if 200 <= r.status_code < 300 or r.status_code == 409:
             print(f"[{_now()}] OK backend ({r.status_code})")
             return True
 

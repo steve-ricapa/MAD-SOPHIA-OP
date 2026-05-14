@@ -113,7 +113,7 @@ def send_webhook(
             )
             _save_payload_debug(payload, response.status_code, response.text or "")
 
-            if 200 <= response.status_code < 300:
+            if 200 <= response.status_code < 300 or response.status_code == 409:
                 return
 
             body_snippet = (response.text or "")[:300]

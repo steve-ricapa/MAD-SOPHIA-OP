@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log-level", default="INFO", help="DEBUG/INFO/WARNING/ERROR")
     p.add_argument("--log-file", default=None, help="Archivo de log")
     p.add_argument("--summary", action="store_true", help="Imprime resumen final")
+    p.add_argument("--interval", type=int, default=0, help="Segundos entre ejecuciones (sobreescribe INTERVAL del .env)")
 
     return p
 
@@ -92,6 +93,8 @@ def main() -> None:
     backend_cfg = load_backend_settings()
     state_manager = StateManager(state_file=general_cfg.state_file)
 
+    interval = args.interval if args.interval > 0 else general_cfg.interval
+
     while True:
         try:
             execute_run(args, log, general_cfg, backend_cfg, state_manager)
@@ -104,8 +107,8 @@ def main() -> None:
             log.info("Single-run mode completed. Exiting.")
             break
 
-        log.info("Modo servicio: Esperando %s segundos...", general_cfg.interval)
-        time.sleep(general_cfg.interval)
+        log.info("Modo servicio: Esperando %s segundos...", interval)
+        time.sleep(interval)
 
 
 def _build_scan_id(window_start: str, window_end: str) -> str:
