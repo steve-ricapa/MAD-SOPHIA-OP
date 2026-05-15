@@ -392,13 +392,30 @@ def _parse_xml(xml_text: str, max_kb: int) -> Any:
     return root
 
 
-def _result_nodes(root: Any) -> list[Any]:
+def _fallback_result_nodes(xml_text: str) -> list[Any]:
+    """Regex-based extraction of <result> blocks when XPath/iter returns nothing.
+    Captures the full <result ...>...</result> including attributes."""
+    pattern = re.compile(r'(<result\b[^>]*>.*?</result>)', re.DOTALL)
+    blocks = pattern.findall(xml_text)
+    if not blocks:
+        return []
+    out: list[Any] = []
+    for block in blocks:
+        try:
+            el = StdET.fromstring(block)
+            out.append(el)
+        except Exception:
+            continue
+    return out
+
+
+def _result_nodes(root: Any, xml_text: str = "") -> list[Any]:
     """
     Tomar resultados preferentemente del reporte:
       report/results/result
     Evita capturar otros <result> que no son findings reales.
-    Fallback: iteraciÃ³n directa si XPath no encuentra nada
-    (cubre edge cases de namespace stripping).
+    Fallback por iteraciÃ³n y luego regex sobre raw text
+    (cubre edge cases de namespace stripping y filtros GMP).
     """
     nodes = root.findall(".//report//results//result")
     if nodes:
@@ -409,7 +426,15 @@ def _result_nodes(root: Any) -> list[Any]:
     nodes = root.findall(".//result")
     if nodes:
         return nodes
-    return [el for el in root.iter() if el.tag.endswith("}result") or el.tag == "result"]
+    nodes = [el for el in root.iter() if el.tag.endswith("}result") or el.tag == "result"]
+    if nodes:
+        return nodes
+    if xml_text:
+        raw_count = xml_text.count("<result>")
+        if raw_count:
+            print(f"[WARN] _result_nodes: {raw_count} <result> in raw XML but XPath/iter found 0 — using regex fallback")
+            return _fallback_result_nodes(xml_text)
+    return []
 
 
 def _safe_float(s: str, default: float = 0.0) -> float:
@@ -436,7 +461,7 @@ def extract_severities(xml_text: str, max_kb: int = 256) -> dict[str, int]:
         root = _parse_xml(xml_text, max_kb=max_kb)
 
         out = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-        for r in _result_nodes(root):
+        for r in _result_nodes(root, xml_text):
             sev = _safe_float(r.findtext("severity", "") or "0", 0.0)
 
             if sev >= 9.0:
@@ -515,7 +540,7 @@ def extract_findings(
 
     findings: list[dict[str, Any]] = []
 
-    for r in _result_nodes(root):
+    for r in _result_nodes(root, xml_text):
         try:
             name = (r.findtext("name", "") or "").strip()
             host = (r.findtext("host", "") or "").strip()
