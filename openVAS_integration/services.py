@@ -539,8 +539,10 @@ def extract_findings(
     root = _parse_xml(xml_text, max_kb=max_kb)
 
     findings: list[dict[str, Any]] = []
+    result_nodes = _result_nodes(root, xml_text)
+    total_results = len(result_nodes)
 
-    for r in _result_nodes(root, xml_text):
+    for r in result_nodes:
         try:
             name = (r.findtext("name", "") or "").strip()
             host = (r.findtext("host", "") or "").strip()
@@ -621,6 +623,18 @@ def extract_findings(
 
         except Exception:
             continue
+
+    # DiagnÃ³stico: si hay resultados del XML pero 0 findings, mostrar por quÃ©
+    if total_results > 0 and not findings:
+        print(f"[DIAG] extract_findings: {total_results} results from XML, 0 findings after filtering")
+        for i, r in enumerate(result_nodes[:3]):
+            name = (r.findtext("name", "") or "").strip()
+            host = (r.findtext("host", "") or "").strip()
+            port = (r.findtext("port", "") or "").strip()
+            nvt = r.find("nvt")
+            nvt_oid = (nvt.get("oid") or "").strip() if nvt is not None else ""
+            sev = r.findtext("severity", "")
+            print(f"[DIAG]   result[{i}]: name='{name[:60]}' host='{host}' port='{port}' nvt_oid='{nvt_oid}' severity='{sev}'")
 
     findings.sort(key=lambda x: float(x.get("cvss", 0.0)), reverse=True)
     return findings[: max(0, int(top_n))]
