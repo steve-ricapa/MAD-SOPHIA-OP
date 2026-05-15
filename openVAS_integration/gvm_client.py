@@ -222,7 +222,7 @@ class GVMClient:
             request = (
                 f"<get_report report_id=\"{report_id_escaped}\" "
                 f"details=\"1\" "
-                f"filter=\"rows={rows} first=1 sort-reverse=severity levels=chml details=1 notes=1 overrides=1\"/>"
+                f"filter=\"rows={rows} first=1 sort-reverse=severity levels=chmlgio details=1 notes=1 overrides=1\"/>"
             )
             return self._send_plain_gmp(request, "get_report_response")
 
@@ -232,7 +232,7 @@ class GVMClient:
         rows = _env_int("GVM_REPORT_ROWS", rows_default)
         rows = max(1, min(int(rows), 2000))
 
-        default_filter = f"rows={rows} first=1 sort-reverse=severity levels=chml details=1 notes=1 overrides=1"
+        default_filter = f"rows={rows} first=1 sort-reverse=severity levels=chmlgio details=1 notes=1 overrides=1"
         filter_string = (os.getenv("GVM_REPORT_FILTER", default_filter) or default_filter).strip()
 
         ignore_pagination = _env_bool("GVM_IGNORE_PAGINATION", False)
