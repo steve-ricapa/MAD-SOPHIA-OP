@@ -77,7 +77,7 @@ class ZabbixClient:
             self.login()
 
         # Configurar Headers
-        headers = {"Content-Type": "application/json-rpc"}
+        headers = {"Content-Type": "application/json"}
         if self.auth_token and method != "apiinfo.version":
             # En Zabbix 7.0 se usa Bearer token incluso para sesiones
             headers["Authorization"] = f"Bearer {self.auth_token}"

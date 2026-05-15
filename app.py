@@ -600,12 +600,12 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
     elif spec.name == "zabbix":
         api_url = env.get("ZABBIX_API_URL", "")
         login_body = {"jsonrpc": "2.0", "method": "user.login", "params": {"username": env.get("ZABBIX_USER", ""), "password": env.get("ZABBIX_PASS", "")}, "id": 2}
-        auth_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=login_body)
+        auth_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json"}, json_body=login_body)
         auth_ok = auth_probe["ok"] and '"error"' not in auth_probe["body_preview"]
         auth_phase = _phase_result("auth", "PASS" if auth_ok else "FAIL", auth_start, None if auth_ok else f"http_{auth_probe['status_code'] or 'auth_error'}", auth_probe["body_preview"] or auth_probe["error_text"], {"endpoint": api_url, "http_status": auth_probe["status_code"]})
         if auth_ok:
             version_body = {"jsonrpc": "2.0", "method": "apiinfo.version", "params": {}, "id": 1}
-            version_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=version_body)
+            version_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json"}, json_body=version_body)
             api_phase = _phase_result("api", "PASS" if version_probe["ok"] else "FAIL", api_start, None if version_probe["ok"] else f"http_{version_probe['status_code'] or version_probe['error_kind']}", version_probe["body_preview"] or version_probe["error_text"], {"endpoint": api_url, "http_status": version_probe["status_code"]})
     elif spec.name == "openvas":
         transport = _normalize_openvas_transport(env.get("GVM_TRANSPORT") or "", env.get("GVM_SOCKET") or "")
@@ -857,7 +857,7 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
                     )
                     _add_skipped(phases, "api", "blocked_by_gmp_connection")
     elif spec.name == "insightvm":
-        info_url = f"{env.get('INSIGHTVM_BASE_URL', '').rstrip('/')}/administration/info"
+        info_url = f"{env.get('INSIGHTVM_BASE_URL', '').rstrip('/')}/api/3/assets?size=1"
         probe = _http_probe_detailed("GET", info_url, timeout_seconds, auth=(env.get("INSIGHTVM_USER", ""), env.get("INSIGHTVM_PASSWORD", "")))
         auth_ok = probe["ok"] or probe["status_code"] not in (401, 403)
         auth_phase = _phase_result("auth", "PASS" if auth_ok else "FAIL", auth_start, None if auth_ok else f"http_{probe['status_code']}", probe["body_preview"] or probe["error_text"], {"endpoint": info_url, "http_status": probe["status_code"]})
