@@ -218,7 +218,12 @@ class GVMClient:
     def get_report(self, report_id: str) -> str:
         if self.transport == "plain":
             report_id_escaped = escape(report_id or "")
-            request = f"<get_report report_id=\"{report_id_escaped}\" details=\"1\"/>"
+            rows = min(1000, max(250, _env_int("TOP_N", 50) * 5))
+            request = (
+                f"<get_report report_id=\"{report_id_escaped}\" "
+                f"details=\"1\" "
+                f"filter=\"rows={rows} first=1 sort-reverse=severity levels=chml details=1 notes=1 overrides=1\"/>"
+            )
             return self._send_plain_gmp(request, "get_report_response")
 
         top_n = _env_int("TOP_N", 50)
