@@ -1,5 +1,6 @@
 ﻿import json
 import os
+import re
 import time
 import traceback
 from typing import Any, Optional
@@ -367,6 +368,12 @@ def get_severity_label(cvss_score: float) -> str:
     return "info"
 
 
+def _strip_xmlns(text: str) -> str:
+    """Remove xmlns declarations BEFORE parsing so ElementTree creates tags without namespace prefixes.
+    Handles xmlns='...', xmlns="...", and xmlns:prefix="...". """
+    return re.sub(r'\s+xmlns(?::\w+)?=\s*["\'][^"\']*["\']', '', text)
+
+
 def _parse_xml(xml_text: str, max_kb: int) -> Any:
     if not isinstance(xml_text, str) or not xml_text:
         raise ValueError("XML vacÃ­o o no str")
@@ -376,13 +383,11 @@ def _parse_xml(xml_text: str, max_kb: int) -> Any:
     if size > max_bytes:
         raise ValueError(f"XML excede lÃ­mite: {size} bytes > {max_bytes} bytes")
 
-    ET = SafeET if SafeET is not None else StdET
-    root = ET.fromstring(xml_text)  # type: ignore
+    # Strip XML namespaces before parsing — avoids .findall() breakage after in-place .tag modification
+    clean = _strip_xmlns(xml_text)
 
-    # Quita namespaces: "{...}severity" -> "severity"
-    for el in root.iter():
-        if isinstance(el.tag, str) and "}" in el.tag:
-            el.tag = el.tag.split("}", 1)[1]
+    ET = SafeET if SafeET is not None else StdET
+    root = ET.fromstring(clean)  # type: ignore
 
     return root
 
