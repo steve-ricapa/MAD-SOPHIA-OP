@@ -392,6 +392,8 @@ def _result_nodes(root: Any) -> list[Any]:
     Tomar resultados preferentemente del reporte:
       report/results/result
     Evita capturar otros <result> que no son findings reales.
+    Fallback: iteraciÃ³n directa si XPath no encuentra nada
+    (cubre edge cases de namespace stripping).
     """
     nodes = root.findall(".//report//results//result")
     if nodes:
@@ -399,7 +401,10 @@ def _result_nodes(root: Any) -> list[Any]:
     nodes = root.findall(".//results//result")
     if nodes:
         return nodes
-    return root.findall(".//result")
+    nodes = root.findall(".//result")
+    if nodes:
+        return nodes
+    return [el for el in root.iter() if el.tag.endswith("}result") or el.tag == "result"]
 
 
 def _safe_float(s: str, default: float = 0.0) -> float:

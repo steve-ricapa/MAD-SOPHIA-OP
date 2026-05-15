@@ -233,9 +233,22 @@ class GVMClient:
             request = (
                 f"<get_report report_id=\"{report_id_escaped}\" "
                 f"details=\"1\" "
-                f"filter=\"rows={rows} first=1 sort-reverse=severity levels=chmlgio details=1 notes=1 overrides=1\"/>"
+                f"filter=\"rows={rows} first=1 sort-reverse=severity levels=chmlgio\"/>"
             )
-            return self._send_plain_gmp(request, "get_report_response")
+            response = self._send_plain_gmp(request, "get_report_response")
+            status, status_text = _gmp_status(response)
+            if status != "200":
+                if self.debug:
+                    print(f"[GVMClient] get_report status={status} {status_text or ''} — retrying without filter")
+                bare = (
+                    f"<get_report report_id=\"{report_id_escaped}\" "
+                    f"details=\"1\"/>"
+                )
+                fallback = self._send_plain_gmp(bare, "get_report_response")
+                fb_status, _ = _gmp_status(fallback)
+                if fb_status == "200":
+                    return fallback
+            return response
 
         top_n = _env_int("TOP_N", 50)
 
