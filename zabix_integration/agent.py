@@ -145,6 +145,7 @@ def main():
                 company_id=cfg.company_id,
                 api_key=cfg.api_key,
                 api_version=api_ver,
+                idempotency_key=idempotency_key,
                 problems=problems,
                 events=events,
                 all_hosts=all_hosts,
