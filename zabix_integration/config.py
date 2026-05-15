@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 class Config:
     base_dir: Path
     api_url: str
+    api_token: str
     user: str
     password: str
     hours: int
@@ -52,11 +53,13 @@ def _resolve_path(base_dir: Path, raw_path: str, fallback_name: str) -> Path:
 
 
 def load_config() -> Config:
-    load_dotenv()
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(env_path, override=True)
     base_dir = Path(__file__).resolve().parent
 
     # Zabbix Source
     api_url = os.getenv("ZABBIX_API_URL", "").strip()
+    api_token = os.getenv("ZABBIX_API_TOKEN", "").strip()
     user = os.getenv("ZABBIX_USER", "").strip()
     password = os.getenv("ZABBIX_PASS", "").strip()
     hours = int(os.getenv("ZABBIX_HOURS") or os.getenv("HOURS", "24"))
@@ -113,14 +116,15 @@ def load_config() -> Config:
 
     if not api_url:
         raise SystemExit("Falta ZABBIX_API_URL.")
-    if not user or not password:
-        raise SystemExit("Faltan ZABBIX_USER o ZABBIX_PASS.")
+    if not api_token and (not user or not password):
+        raise SystemExit("Falta ZABBIX_API_TOKEN o ZABBIX_USER+ZABBIX_PASS.")
     if output_mode not in {"stdout", "webhook", "all"}:
         raise SystemExit("ZABBIX_OUTPUT_MODE/OUTPUT_MODE debe ser stdout, webhook o all.")
 
     return Config(
         base_dir=base_dir,
         api_url=api_url,
+        api_token=api_token,
         user=user,
         password=password,
         hours=hours,

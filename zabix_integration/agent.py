@@ -69,8 +69,9 @@ def main():
     cfg = load_config()
     zbx = ZabbixClient(
         cfg.api_url,
-        cfg.user,
-        cfg.password,
+        api_token=cfg.api_token,
+        user=cfg.user,
+        password=cfg.password,
         timeout=cfg.request_timeout,
         verify_ssl=cfg.verify_ssl,
         retries=cfg.http_retries,
