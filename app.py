@@ -425,7 +425,7 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
         default_port = 55000
     elif spec.name == "zabbix":
         target = env.get("ZABBIX_API_URL", "")
-        default_port = 80
+        default_port = 443 if target.lower().startswith("https://") else 80
     elif spec.name == "openvas":
         transport = _normalize_openvas_transport(env.get("GVM_TRANSPORT") or "", env.get("GVM_SOCKET") or "")
         if transport == "unix":
