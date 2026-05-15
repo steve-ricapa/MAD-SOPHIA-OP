@@ -46,6 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="OpenVAS real-time integration agent")
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
     parser.add_argument("--cycles", type=int, default=0, help="Run N cycles and exit (0=infinite)")
+    parser.add_argument("--debug", "-v", action="store_true", help="Enable verbose debug output (raw XML, hash computation, payload summary)")
     return parser.parse_args()
 
 
@@ -366,6 +367,17 @@ print(f"[{now()}] SNAPSHOT_ALWAYS_SEND={SNAPSHOT_ALWAYS_SEND} | FORCE_SEND_EVERY
 
 lock_path = f"{STATE_PATH}.lock"
 args = parse_args()
+
+# --debug CLI flag overrides env var
+if args.debug:
+    os.environ["DEBUG"] = "true"
+    os.environ["OPENVAS_DEBUG"] = "true"
+
+DEBUG_FLAG = args.debug or bool(DEBUG)
+
+if DEBUG_FLAG:
+    print(f"[{now()}] DEBUG MODE ENABLED - verbose XML, hash, and payload output active")
+
 cycle_count = 0
 cycle_errors_file = Path("artifacts") / "logs" / "cycle_errors.jsonl"
 cycle_errors_file.parent.mkdir(parents=True, exist_ok=True)
@@ -399,9 +411,15 @@ while True:
                     certfile=GVM_TLS_CERTFILE,
                     keyfile=GVM_TLS_KEYFILE,
                     timeout=GVM_TIMEOUT,
+                    debug=DEBUG_FLAG,
                 ) as client:
                     print(f"[{now()}] GMP session established | transport={GVM_TRANSPORT} | collector=gmp")
                     tasks_xml = client.get_tasks()
+                    if DEBUG_FLAG:
+                        print(f"[{now()}] [DEBUG] RAW TASKS XML ({len(tasks_xml)} bytes):")
+                        print(tasks_xml[:3000])
+                        if len(tasks_xml) > 3000:
+                            print(f"... (truncated, total {len(tasks_xml)} bytes)")
 
             elif active_collector == "simulated":
                 tasks_xml = simulated_tasks_xml()
@@ -494,8 +512,14 @@ while True:
                                     certfile=GVM_TLS_CERTFILE,
                                     keyfile=GVM_TLS_KEYFILE,
                                     timeout=GVM_TIMEOUT,
+                                    debug=DEBUG_FLAG,
                                 ) as client:
                                     report_xml = client.get_report(report_id)
+                                    if DEBUG_FLAG:
+                                        print(f"[{now()}] [DEBUG] RAW REPORT XML ({report_id}) ({len(report_xml)} bytes):")
+                                        print(report_xml[:3000])
+                                        if len(report_xml) > 3000:
+                                            print(f"... (truncated, total {len(report_xml)} bytes)")
 
                             if severities is None:
                                 severities = extract_severities(report_xml, max_kb=REPORT_MAX_KB)
@@ -516,6 +540,8 @@ while True:
                         ).hexdigest()
                         task_key = hashlib.sha256(f"{report_id}:{findings_hash}".encode("utf-8")).hexdigest()
                         idempotency_key = f"sha256:{task_key}"
+                        if DEBUG_FLAG:
+                            print(f"[{now()}] [DEBUG] report_id={report_id} findings_count={len(findings or [])} findings_hash={findings_hash[:16]}... task_key={task_key[:16]}... idempotency_key={idempotency_key}")
 
                         metrics, entities = build_dashboard_blocks(severities, findings, report_stats)
 
@@ -569,6 +595,10 @@ while True:
                             "findings": findings or [],
                         }
 
+                        if DEBUG_FLAG:
+                            payload_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+                            print(f"[{now()}] [DEBUG] SENDING payload report_id={report_id} task={task_name} findings={len(findings or [])} payload_size={payload_bytes/1024:.1f}KB idempotency_key={idempotency_key}")
+
                         ok = emit_payload(
                             output_mode=OUTPUT_MODE,
                             url=TXDXAI_INGEST_URL,
@@ -578,6 +608,9 @@ while True:
                             timeout=60,
                             require_https=True,
                         )
+
+                        if DEBUG_FLAG:
+                            print(f"[{now()}] [DEBUG] BACKEND RESPONSE ok={ok} report_id={report_id}")
 
                         if ok:
                             sent_map[report_id] = int(time.time())

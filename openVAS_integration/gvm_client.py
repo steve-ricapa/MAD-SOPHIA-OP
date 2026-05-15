@@ -62,6 +62,7 @@ class GVMClient:
         certfile: str = "",
         keyfile: str = "",
         timeout: int = 30,
+        debug: bool = False,
     ):
         self.host = host
         self.port = int(port)
@@ -74,6 +75,7 @@ class GVMClient:
         self.certfile = (certfile or "").strip()
         self.keyfile = (keyfile or "").strip()
         self.timeout = int(timeout) if int(timeout) > 0 else 30
+        self.debug = debug
 
         self._err: Optional[Exception] = None
         self._TLSConnection = None
@@ -182,8 +184,17 @@ class GVMClient:
     def _send_plain_gmp(self, xml_request: str, expected_response: str) -> str:
         if self._plain_sock is None:
             raise RuntimeError("Socket GMP plain no inicializado")
+        if self.debug:
+            print(f"[GVMClient] >>> SEND ({len(xml_request)} bytes): {xml_request[:500]}")
+            if len(xml_request) > 500:
+                print(f"[GVMClient] >>> ... (truncated, total {len(xml_request)} bytes)")
         self._plain_sock.sendall(xml_request.encode("utf-8"))
-        return self._read_until_response(expected_response)
+        response = self._read_until_response(expected_response)
+        if self.debug:
+            print(f"[GVMClient] <<< RECV ({len(response)} bytes): {response[:1000]}")
+            if len(response) > 1000:
+                print(f"[GVMClient] <<< ... (truncated, total {len(response)} bytes)")
+        return response
 
     def _plain_connect_and_auth(self) -> None:
         allow_plain = _env_bool("GVM_ALLOW_PLAIN_TCP", False)
