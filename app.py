@@ -270,6 +270,7 @@ def _http_probe_detailed(
             json=json_body,
             timeout=timeout,
             verify=False,
+            allow_redirects=False,
         )
         return {
             "ok": resp.ok,
@@ -535,6 +536,12 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
                     ctx = ssl.create_default_context()
                 else:
                     ctx = ssl._create_unverified_context()
+            elif spec.name == "zabbix":
+                verify_ssl = parse_bool(env.get("ZABBIX_VERIFY_SSL"), default=False)
+                if verify_ssl:
+                    ctx = ssl.create_default_context()
+                else:
+                    ctx = ssl._create_unverified_context()
             else:
                 ctx = ssl.create_default_context()
             with socket.create_connection((host, port), timeout=timeout_seconds) as sock:
@@ -553,6 +560,10 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
                 verify_ssl = parse_bool(env.get("INSIGHTVM_VERIFY_SSL"), default=False)
                 evidence["verify_ssl"] = verify_ssl
                 evidence["cert_validation"] = "ca" if verify_ssl else "skipped_by_insightvm_verify_ssl_false"
+            elif spec.name == "zabbix":
+                verify_ssl = parse_bool(env.get("ZABBIX_VERIFY_SSL"), default=False)
+                evidence["verify_ssl"] = verify_ssl
+                evidence["cert_validation"] = "ca" if verify_ssl else "skipped_by_zabbix_verify_ssl_false"
             phases.append(_phase_result("tls", "PASS", tls_start, evidence=evidence))
         except ssl.SSLError as exc:
             normalized_error = _normalize_tls_failure(exc)
@@ -600,12 +611,12 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, base_env: dict[str, str], tim
     elif spec.name == "zabbix":
         api_url = env.get("ZABBIX_API_URL", "")
         login_body = {"jsonrpc": "2.0", "method": "user.login", "params": {"username": env.get("ZABBIX_USER", ""), "password": env.get("ZABBIX_PASS", "")}, "id": 2}
-        auth_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json"}, json_body=login_body)
+        auth_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=login_body)
         auth_ok = auth_probe["ok"] and '"error"' not in auth_probe["body_preview"]
         auth_phase = _phase_result("auth", "PASS" if auth_ok else "FAIL", auth_start, None if auth_ok else f"http_{auth_probe['status_code'] or 'auth_error'}", auth_probe["body_preview"] or auth_probe["error_text"], {"endpoint": api_url, "http_status": auth_probe["status_code"]})
         if auth_ok:
             version_body = {"jsonrpc": "2.0", "method": "apiinfo.version", "params": {}, "id": 1}
-            version_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json"}, json_body=version_body)
+            version_probe = _http_probe_detailed("POST", api_url, timeout_seconds, headers={"Content-Type": "application/json-rpc"}, json_body=version_body)
             api_phase = _phase_result("api", "PASS" if version_probe["ok"] else "FAIL", api_start, None if version_probe["ok"] else f"http_{version_probe['status_code'] or version_probe['error_kind']}", version_probe["body_preview"] or version_probe["error_text"], {"endpoint": api_url, "http_status": version_probe["status_code"]})
     elif spec.name == "openvas":
         transport = _normalize_openvas_transport(env.get("GVM_TRANSPORT") or "", env.get("GVM_SOCKET") or "")
