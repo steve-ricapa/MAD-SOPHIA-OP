@@ -430,14 +430,10 @@ while True:
             snapshot_changed = bool(snapshot_decision.get("changed", False))
             unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
 
-            idempotency_digest = hashlib.sha256(current_signature.encode("utf-8")).hexdigest()
-            idempotency_key = f"sha256:{idempotency_digest}"
-
             next_state = dict(state)
             next_state["sent"] = sent_map
             next_state["snapshot_signature"] = current_signature
             next_state["unchanged_cycles"] = unchanged_cycles
-            next_state["last_idempotency_key"] = idempotency_key
 
             if not should_send:
                 next_state["last_send_result"] = "skipped_no_change"
@@ -515,6 +511,12 @@ while True:
                                     max_kb=REPORT_MAX_KB,
                                 )
 
+                        findings_hash = hashlib.sha256(
+                            json.dumps(findings or [], sort_keys=True, default=str).encode("utf-8")
+                        ).hexdigest()
+                        task_key = hashlib.sha256(f"{report_id}:{findings_hash}".encode("utf-8")).hexdigest()
+                        idempotency_key = f"sha256:{task_key}"
+
                         metrics, entities = build_dashboard_blocks(severities, findings, report_stats)
 
                         counts = severities or {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
@@ -573,13 +575,14 @@ while True:
                             api_key=TXDXAI_API_KEY,
                             company_id=TXDXAI_COMPANY_ID,
                             payload=payload,
-                            timeout=15,
+                            timeout=60,
                             require_https=True,
                         )
 
                         if ok:
                             sent_map[report_id] = int(time.time())
                             sent_in_cycle += 1
+                            next_state["last_idempotency_key"] = idempotency_key
 
                     except Exception as e:
                         handle_exception(f"cycle.task[{idx}].process", e, {"hint": "Fallo procesando task/report"})
