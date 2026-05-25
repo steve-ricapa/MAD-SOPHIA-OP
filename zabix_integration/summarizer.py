@@ -29,6 +29,16 @@ def _sev_cvss(sev_num: int) -> float:
     return float(SEVERITY_CVSS.get(sev_num, 0.0))
 
 
+def _health_label(counts: Dict[str, int]) -> str:
+    if counts.get("critical", 0) > 0:
+        return "critical"
+    if counts.get("high", 0) > 0:
+        return "high"
+    if counts.get("medium", 0) > 0:
+        return "degraded"
+    return "healthy"
+
+
 def summarize(
     scan_id: str,
     company_id: int,
@@ -65,7 +75,13 @@ def summarize(
         has_custom_info = any(k in tags for k in ["cve", "cvss", "solution", "impact"])
 
         if host_name not in host_summary:
-            host_summary[host_name] = {"active_or_special": [], "healthy_count": 0, "ip": "N/A", "port": "0"}
+            host_summary[host_name] = {
+                "active_or_special": [],
+                "healthy_count": 0,
+                "ip": "N/A",
+                "port": "0",
+                "host_id": hosts[0].get("hostid", "") if hosts else "",
+            }
 
         interfaces = t.get("interfaces") or []
         main_interface = next((i for i in interfaces if i.get("main") == "1"), interfaces[0]) if interfaces else {}
@@ -90,26 +106,34 @@ def summarize(
             tags = {tag.get("tag").lower(): tag.get("value") for tag in (t.get("tags") or [])}
             description = t.get("description", "").replace("{HOST.NAME}", host_name)
 
-            cve_val = tags.get("cve", "INTERNAL-ZBX")
-            if cve_val == "INTERNAL-ZBX" and "CVE-" in description.upper():
-                import re
-                found = re.search(r'(CVE-\d{4}-\d+)', description, re.IGNORECASE)
-                if found:
-                    cve_val = found.group(1).upper()
-
             findings.append({
                 "name": description,
                 "severity": sev_label,
-                "cvss": float(tags.get("cvss", _sev_cvss(sev_num))),
-                "cve": cve_val,
-                "oid": f"zbx-trig-{t['triggerid']}",
+                "event_kind": "problem" if is_active else "recovery",
+                "status": "active" if is_active else "resolved",
                 "host": f"{host_name} ({data['ip']})",
+                "host_id": str(data.get("host_id", "")),
+                "service_name": None,
+                "monitor_name": None,
+                "monitor_id": None,
                 "port": tags.get("port", data["port"] if data["port"] != "0" else "161"),
                 "protocol": tags.get("protocol", "snmp/agent"),
+                "metric_name": t.get("expression", ""),
+                "metric_value": "problem" if is_active else "ok",
+                "threshold_value": None,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "ended_at": None,
+                "duration_seconds": None,
+                "acknowledged": False,
+                "maintenance": False,
                 "description": f"{'ALERTA ACTIVA' if is_active else 'ESTADO OK'}: {description}",
                 "solution": tags.get("solution", "Accion requerida en consola Zabbix."),
                 "impact": tags.get("impact", "Monitoreo activo o recurso afectado."),
-                "finding_type": "active_trigger" if is_active else "informational_trigger",
+                "raw": {
+                    "triggerid": t.get("triggerid"),
+                    "priority": sev_num,
+                    "tags": t.get("tags") or [],
+                },
             })
 
         displayed_ids = {t.get("triggerid") for t in data["active_or_special"]}
@@ -126,20 +150,39 @@ def summarize(
             findings.append({
                 "name": f"Rule Group ({sev_label}): {host_name}",
                 "severity": sev_label,
-                "cvss": _sev_cvss(sev_num),
-                "cve": "N/A",
-                "oid": f"zbx-chk-{host_name}-{sev_num}",
+                "event_kind": "health_summary",
+                "status": "active",
                 "host": f"{host_name} ({data['ip']})",
+                "host_id": str(data.get("host_id", "")),
+                "service_name": None,
+                "monitor_name": None,
+                "monitor_id": None,
                 "port": data["port"] if data["port"] != "0" else "161",
                 "protocol": "snmp/agent",
+                "metric_name": "trigger_count",
+                "metric_value": str(count),
+                "threshold_value": None,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "ended_at": None,
+                "duration_seconds": None,
+                "acknowledged": False,
+                "maintenance": False,
                 "description": f"Monitoreando con exito {count} reglas de nivel {sev_label}.",
                 "solution": "No se requiere accion, estado estable.",
                 "impact": "Proteccion activa.",
-                "finding_type": "health_summary",
+                "raw": {"rule_count": count, "severity_num": sev_num},
             })
 
     scanned_at = datetime.now(timezone.utc).isoformat()
-    cvss_max = max([float(f.get("cvss", 0.0)) for f in findings], default=0.0)
+    cvss_max = 0.0
+    if counts.get("critical", 0) > 0:
+        cvss_max = _sev_cvss(5)
+    elif counts.get("high", 0) > 0:
+        cvss_max = _sev_cvss(4)
+    elif counts.get("medium", 0) > 0:
+        cvss_max = _sev_cvss(3)
+    elif counts.get("low", 0) > 0:
+        cvss_max = _sev_cvss(2)
 
     results = {
         "critical": counts.get("critical", 0),
@@ -161,20 +204,45 @@ def summarize(
             "scan_id": scan_id,
             "scan_name": f"Zabbix Real-time Sync (v{api_version})",
             "status": "completed",
-            "total_hosts": len(all_hosts),
             "scanned_at": scanned_at,
-            "cvss_max": cvss_max,
             "scanner_type": "zabbix",
+            "summary_type": "noc_health",
+            "target": "zabbix-monitoring",
+            "total_hosts": len(all_hosts),
+            "total_monitors": len(all_triggers),
+            "total_services": 0,
+            "total_events": len(problems),
+            "total_findings": len(findings),
+            "cvss_max": cvss_max,
             "results": results,
+            "health": {
+                "health_score": round(
+                    100 - (counts.get("critical", 0) * 30 + counts.get("high", 0) * 15 + counts.get("medium", 0) * 5),
+                    1,
+                ),
+                "health_label": _health_label(counts),
+                "availability_percentage": round(
+                    (len(all_hosts) - (counts.get("critical", 0) + counts.get("high", 0))) / max(len(all_hosts), 1) * 100,
+                    1,
+                ),
+                "avg_response_time_ms": 0.0,
+            },
+            "availability": {
+                "hosts_up": max(len(all_hosts) - (counts.get("critical", 0) + counts.get("high", 0)), 0),
+                "hosts_down": min(counts.get("critical", 0) + counts.get("high", 0), len(all_hosts)),
+            },
             "meta": {
-                "schema_version": "1.0",
+                "schema_version": "1.2",
                 "mad_version": mad_version,
                 "integration_version": integration_version,
                 "source": source,
+                "raw_source": "zabbix",
                 "snapshot_signature": snapshot_signature,
                 "snapshot_mode": snapshot_mode,
                 "send_reason": send_reason,
                 "snapshot_changed": snapshot_changed,
+                "collection_window_start": scanned_at,
+                "collection_window_end": scanned_at,
             },
             "event_count": len(events),
         },

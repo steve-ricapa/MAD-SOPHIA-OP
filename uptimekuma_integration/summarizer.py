@@ -122,6 +122,7 @@ def build_findings(
 ) -> Dict[str, Any]:
     findings = []
     next_statuses: Dict[str, int] = {}
+    scanned_at = datetime.now(timezone.utc).isoformat()
 
     for monitor_id, monitor in sorted(monitors.items(), key=lambda item: _monitor_sort_key(item[0])):
         status = int(monitor.get("status", -1))
@@ -133,7 +134,7 @@ def build_findings(
         if not include:
             continue
 
-        severity, cvss = _severity_and_cvss(status)
+        severity, _ = _severity_and_cvss(status)
         current_label = _status_label(status)
         prev_label = _status_label(int(prev_status)) if prev_status is not None else "unknown"
         transition = f"{prev_label} -> {current_label}" if prev_status is not None else f"initial -> {current_label}"
@@ -217,21 +218,28 @@ def build_findings(
         finding = {
             "name": f"Uptime Kuma monitor '{monitor.get('name', monitor_id)}' is {current_label.upper()}",
             "severity": severity,
-            "cvss": cvss,
-            "cve": "N/A",
-            "oid": f"uptimekuma-monitor-{monitor_id}",
+            "event_kind": "availability_change",
+            "status": "active" if current_label == "down" else "resolved" if prev_status is not None and current_label == "up" else "unknown",
             "host": _monitor_host(monitor),
+            "host_id": str(monitor_id),
+            "service_name": None,
+            "monitor_name": monitor.get("name", monitor_id),
+            "monitor_id": str(monitor_id),
             "port": _monitor_port(monitor),
             "protocol": monitor.get("type") or "uptime-monitor",
+            "metric_name": "response_time_ms",
+            "metric_value": str(response_time) if response_time is not None else None,
+            "threshold_value": None,
+            "started_at": scanned_at,
+            "ended_at": None,
+            "duration_seconds": None,
+            "acknowledged": False,
+            "maintenance": current_label == "maintenance",
             "description": " | ".join(description_parts),
             "solution": "Check monitor target and service health in Uptime Kuma.",
             "impact": "Service availability degradation or monitoring disruption.",
-            "finding_type": "availability_monitor",
-            "monitor_id": monitor_id,
-            "monitor_status": current_label,
+            "raw": monitor_meta if include_extended_fields else {},
         }
-        if include_extended_fields:
-            finding["monitor_meta"] = monitor_meta
         findings.append(finding)
 
     return {"findings": findings, "current_statuses": next_statuses}
@@ -257,7 +265,7 @@ def build_report(
 ) -> Dict[str, Any]:
     scanned_at = datetime.now(timezone.utc).isoformat()
     counts = summarize_counts(monitors)
-    cvss_max = max((float(f.get("cvss", 0.0)) for f in findings), default=0.0)
+    cvss_max = 9.5 if counts.get("down", 0) > 0 else 5.0 if counts.get("pending", 0) > 0 else 2.0 if counts.get("maintenance", 0) > 0 else 0.0
     total_hosts = len(monitors)
 
     response_times = [
@@ -302,10 +310,16 @@ def build_report(
         "scan_id": scan_id,
         "scan_name": "Uptime Kuma Real-time Sync",
         "status": "completed",
-        "total_hosts": total_hosts,
         "scanned_at": scanned_at,
-        "cvss_max": cvss_max,
         "scanner_type": scanner_type,
+        "summary_type": "availability",
+        "target": "uptime-kuma-monitors",
+        "total_hosts": total_hosts,
+        "total_monitors": total_hosts,
+        "total_services": 0,
+        "total_events": counts.get("down", 0) + counts.get("pending", 0),
+        "total_findings": len(findings),
+        "cvss_max": cvss_max,
         "results": {
             "critical": counts.get("down", 0),
             "high": counts.get("pending", 0),
@@ -313,28 +327,44 @@ def build_report(
             "low": counts.get("up", 0),
             "info": counts.get("unknown", 0),
         },
-        "meta": {
-            "schema_version": "1.0",
-            "mad_version": mad_version,
-            "integration_version": integration_version,
-            "source": source,
-            "snapshot_signature": snapshot_signature,
-            "snapshot_mode": snapshot_mode,
-            "snapshot_changed": bool(snapshot_changed),
-            "send_reason": send_reason,
-            "up_count": counts.get("up", 0),
-            "down_count": counts.get("down", 0),
-            "pending_count": counts.get("pending", 0),
-            "maintenance_count": counts.get("maintenance", 0),
+        "health": {
+            "health_score": round((sum(uptime_samples) / len(uptime_samples) * 100) if uptime_samples else 0.0, 1),
+            "health_label": "critical" if counts.get("down", 0) > 0 else "degraded" if counts.get("pending", 0) > 0 else "healthy",
+            "availability_percentage": round((counts.get("up", 0) / max(total_hosts, 1)) * 100, 1),
             "avg_response_time_ms": (sum(response_times) / len(response_times)) if response_times else 0.0,
+        },
+        "availability": {
+            "hosts_up": counts.get("up", 0),
+            "hosts_down": counts.get("down", 0),
+            "monitors_up": counts.get("up", 0),
+            "monitors_down": counts.get("down", 0),
+            "monitors_degraded": counts.get("pending", 0) + counts.get("maintenance", 0),
+        },
+        "performance": {
             "avg_response_time_ms_30d": (sum(response_times_30d) / len(response_times_30d)) if response_times_30d else 0.0,
             "avg_response_time_ms_365d": (sum(response_times_365d) / len(response_times_365d)) if response_times_365d else 0.0,
             "avg_uptime_ratio_1d": (sum(uptime_samples) / len(uptime_samples)) if uptime_samples else 0.0,
             "avg_uptime_ratio_30d": (sum(uptime_samples_30d) / len(uptime_samples_30d)) if uptime_samples_30d else 0.0,
             "avg_uptime_ratio_365d": (sum(uptime_samples_365d) / len(uptime_samples_365d)) if uptime_samples_365d else 0.0,
-            "cert_expiring_30d_count": cert_expiring_30d,
-            "invalid_cert_count": invalid_cert_count,
+        },
+        "certificates": {
+            "ssl_expiring_soon": cert_expiring_30d,
+            "ssl_invalid": invalid_cert_count,
+            "ssl_expired": 0,
+        },
+        "meta": {
+            "schema_version": "1.2",
+            "mad_version": mad_version,
+            "integration_version": integration_version,
+            "source": source,
+            "raw_source": "uptime_kuma",
+            "snapshot_signature": snapshot_signature,
+            "snapshot_mode": snapshot_mode,
+            "snapshot_changed": bool(snapshot_changed),
+            "send_reason": send_reason,
             "down_monitors": down_monitors,
+            "collection_window_start": scanned_at,
+            "collection_window_end": scanned_at,
         },
     }
 

@@ -78,7 +78,7 @@ def load_config() -> Config:
         or os.getenv("TXDXAI_API_KEY")
         or os.getenv("API_KEY", "local_test_key")
     ).strip()
-    scanner_type = (os.getenv("UPTIME_SCANNER_TYPE") or os.getenv("SCANNER_TYPE", "uptimekuma")).strip().lower()
+    scanner_type = (os.getenv("UPTIME_SCANNER_TYPE") or os.getenv("SCANNER_TYPE", "uptime_kuma")).strip().lower()
     event_type = (os.getenv("UPTIME_EVENT_TYPE") or os.getenv("EVENT_TYPE", "vuln_scan_report")).strip()
 
     poll_interval = int(os.getenv("UPTIME_POLL_INTERVAL_SECONDS") or os.getenv("POLL_INTERVAL_SECONDS", "15"))
