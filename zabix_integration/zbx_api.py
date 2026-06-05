@@ -33,24 +33,32 @@ class ZabbixClient:
             return []
 
         base = raw.rstrip("/")
-        candidates = [base]
-
-        if not base.endswith("api_jsonrpc.php"):
-            candidates.append(base + "/api_jsonrpc.php")
-            candidates.append(base + "/zabbix/api_jsonrpc.php")
-
+        variants = {base}
         if base.startswith("http://"):
-            https_base = "https://" + base[len("http://") :]
-            candidates.append(https_base)
-            if not https_base.endswith("api_jsonrpc.php"):
-                candidates.append(https_base.rstrip("/") + "/api_jsonrpc.php")
-                candidates.append(https_base.rstrip("/") + "/zabbix/api_jsonrpc.php")
+            variants.add("https://" + base[len("http://") :])
         elif base.startswith("https://"):
-            http_base = "http://" + base[len("https://") :]
-            candidates.append(http_base)
-            if not http_base.endswith("api_jsonrpc.php"):
-                candidates.append(http_base.rstrip("/") + "/api_jsonrpc.php")
-                candidates.append(http_base.rstrip("/") + "/zabbix/api_jsonrpc.php")
+            variants.add("http://" + base[len("https://") :])
+
+        candidates: list[str] = []
+        for variant in variants:
+            normalized = variant.rstrip("/")
+            candidates.append(normalized)
+
+            if normalized.endswith("/zabbix/api_jsonrpc.php"):
+                host_root = normalized[: -len("/zabbix/api_jsonrpc.php")]
+                zabbix_root = host_root + "/zabbix"
+            elif normalized.endswith("/api_jsonrpc.php"):
+                host_root = normalized[: -len("/api_jsonrpc.php")]
+                zabbix_root = host_root + "/zabbix"
+            elif normalized.endswith("/zabbix"):
+                host_root = normalized[: -len("/zabbix")]
+                zabbix_root = normalized
+            else:
+                host_root = normalized
+                zabbix_root = normalized + "/zabbix"
+
+            candidates.append(host_root + "/api_jsonrpc.php")
+            candidates.append(zabbix_root + "/api_jsonrpc.php")
 
         unique: list[str] = []
         seen = set()
