@@ -1,0 +1,11 @@
+{
+  "saved_at_utc": "2026-06-08T21:09:42.492606+00:00",
+  "scan_id": "sim-report-2",
+  "task_id": "sim-task-2",
+  "task_name": "Sim Task 2",
+  "status_raw": "Completed",
+  "status_normalized": "completed",
+  "delivery_success": true,
+  "ingest_url": "https://txdxai-flask.replit.app/api/scans/ingest",
+  "output_mode": "console"
+}

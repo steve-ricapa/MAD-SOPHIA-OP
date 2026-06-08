@@ -1,0 +1,6 @@
+<get_tasks_response xmlns="urn:gmp">
+      <tasks>
+        <task id="sim-task-1"><name>Sim Task</name><status>Done</status><last_report><report id="sim-report-1"/></last_report></task>
+        <task id="sim-task-2"><name>Sim Task 2</name><status>Completed</status><last_report><report id="sim-report-2"/></last_report></task>
+      </tasks>
+    </get_tasks_response>

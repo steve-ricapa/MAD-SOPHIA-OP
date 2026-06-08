@@ -735,27 +735,16 @@ def run_single_run_diagnostics(
             log(f"[DIAG] {spec.name}: SKIPPED ({reason})")
             continue
 
-        if perform_precheck and not precheck.passed:
+        precheck_failed = perform_precheck and not precheck.passed
+        if precheck_failed:
             failed_phase = next((p for p in precheck.phases if p.get("status") == "FAIL"), None)
             phase = failed_phase.get("phase", "precheck") if failed_phase else classify_phase_from_details(precheck.details)
             raw_excerpt = sanitize_text(precheck.details, env)
-            results.append(
-                DiagnosticExecResult(
-                    name=spec.name,
-                    status="FAIL",
-                    phase=phase,
-                    details=precheck.details,
-                    raw_error_excerpt=raw_excerpt,
-                    return_code=None,
-                    log_file=str(log_file_path),
-                    phases=precheck.phases + [{"phase": "execution", "status": "SKIPPED", "duration_ms": 0, "normalized_error": "blocked_by_precheck", "raw_error_excerpt": raw_excerpt[:200], "evidence": {}}],
-                    summary=precheck.summary,
-                )
-            )
             with open(log_file_path, "a", encoding="utf-8") as f:
-                f.write("PRECHECK FAILED. EXECUTION SKIPPED.\n")
-            log(f"[DIAG] {spec.name}: FAIL ({phase})")
-            continue
+                f.write("PRECHECK FAILED. EXECUTION WILL STILL RUN IN DIAGNOSTIC MODE.\n")
+                f.write(f"FAILED_PHASE: {phase}\n")
+                f.write(f"PRECHECK_DETAILS: {raw_excerpt}\n\n")
+            log(f"[DIAG] {spec.name}: precheck FAIL ({phase}) but execution will still run")
 
         run_dir_path = ROOT / spec.run_dir if spec.run_dir else ROOT
         run_dir_path.mkdir(parents=True, exist_ok=True)
@@ -782,6 +771,8 @@ def run_single_run_diagnostics(
                 lf.write(output_sanitized)
             status = "PASS" if completed.returncode == 0 else "FAIL"
             details = f"completed with return code {completed.returncode}"
+            if precheck_failed:
+                details = f"precheck failed but execution completed with return code {completed.returncode}"
             phase = "send" if status == "PASS" else "execution"
             raw_excerpt = output_sanitized[-600:] if output_sanitized else ""
             execution_phase = _phase_result(

@@ -100,6 +100,23 @@ def handle_exception(step: str, e: BaseException, context: dict):
     _error_counts[sig] = _error_counts.get(sig, 0) + 1
     n = _error_counts[sig]
 
+    try:
+        write_json_file(
+            LAST_DELIVERY_META_PATH,
+            {
+                "saved_at_utc": now(),
+                "delivery_success": False,
+                "error_step": step,
+                "error_type": type(e).__name__,
+                "error_text": str(e),
+                "context": {str(k): str(v) for k, v in (context or {}).items()},
+                "output_mode": OUTPUT_MODE,
+                "ingest_url": TXDXAI_INGEST_URL,
+            },
+        )
+    except Exception:
+        pass
+
     if n > MAX_ERROR_REPEAT:
         if n == MAX_ERROR_REPEAT + 1:
             print(f"[{now()}] ERROR @ {step} repetido >{MAX_ERROR_REPEAT} veces. Se silenciarÃ¡.")
