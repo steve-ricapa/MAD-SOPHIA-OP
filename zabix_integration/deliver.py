@@ -248,6 +248,9 @@ def deliver(
 ) -> Dict[str, Any]:
     result = {"sent": False, "queued": False, "flushed_from_queue": 0}
 
+    if last_payload_path:
+        write_json(last_payload_path, report)
+
     if mode == "stdout":
         send_stdout(report)
         return result
@@ -297,8 +300,5 @@ def deliver(
                 print(f"[WARN] Backend temporarily unavailable. Payload queued: {queued_file.name} ({exc})")
             else:
                 raise
-
-    if mode == "all" and last_payload_path:
-        write_json(last_payload_path, report)
 
     return result

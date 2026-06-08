@@ -20,7 +20,9 @@ from config import (
     GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_TIMEOUT,
     DEBUG, MAX_ERROR_REPEAT, DETAIL_LEVEL, TOP_N, REPORT_MAX_KB, FINDING_TEXT_MAX,
     STATE_TTL_DAYS, STATE_MAX_ITEMS,
-    MAD_VERSION, OPENVAS_INTEGRATION_VERSION, SOURCE,
+    MAD_VERSION, OPENVAS_INTEGRATION_VERSION, SOURCE, ARTIFACTS_DIR,
+    LAST_TASKS_XML_PATH, LAST_REPORT_XML_PATH, LAST_REPORT_JSON_PATH,
+    LAST_PAYLOAD_PATH, LAST_DELIVERY_META_PATH,
     validate_config,
 )
 
@@ -29,7 +31,8 @@ from snapshot import build_snapshot_signature, decide_snapshot_send
 from services import (
     FileLock, load_state, save_state, purge_sent,
     extract_severities, extract_report_stats, extract_findings,
-    emit_payload, format_exception
+    emit_payload, format_exception, map_status,
+    write_json_file, write_text_file,
 )
 
 OPENVAS_BANNER = r"""
@@ -101,6 +104,23 @@ def handle_exception(step: str, e: BaseException, context: dict):
     sig = _signature(step, e)
     _error_counts[sig] = _error_counts.get(sig, 0) + 1
     n = _error_counts[sig]
+
+    try:
+        write_json_file(
+            LAST_DELIVERY_META_PATH,
+            {
+                "saved_at_utc": now(),
+                "delivery_success": False,
+                "error_step": step,
+                "error_type": type(e).__name__,
+                "error_text": str(e),
+                "context": {str(k): str(v) for k, v in (context or {}).items()},
+                "output_mode": OUTPUT_MODE,
+                "ingest_url": TXDXAI_INGEST_URL,
+            },
+        )
+    except Exception:
+        pass
 
     if n > MAX_ERROR_REPEAT:
         if n == MAX_ERROR_REPEAT + 1:
@@ -178,13 +198,20 @@ def _extract_task_snapshot_rows(tasks: list[ET.Element]) -> list[dict[str, Any]]
     return rows
 
 
+def _extract_task_status(task_node: ET.Element) -> str:
+    for el in task_node.iter():
+        if _lname(el.tag) == "status":
+            return (el.text or "").strip()
+    return ""
+
+
 def simulated_tasks_xml() -> str:
     # con namespace para validar que el parser ya es robusto
     return """
     <get_tasks_response xmlns="urn:gmp">
       <tasks>
-        <task id="sim-task-1"><name>Sim Task</name><last_report><report id="sim-report-1"/></last_report></task>
-        <task id="sim-task-2"><name>Sim Task 2</name><last_report><report id="sim-report-2"/></last_report></task>
+        <task id="sim-task-1"><name>Sim Task</name><status>Done</status><last_report><report id="sim-report-1"/></last_report></task>
+        <task id="sim-task-2"><name>Sim Task 2</name><status>Completed</status><last_report><report id="sim-report-2"/></last_report></task>
       </tasks>
     </get_tasks_response>
     """.strip()
@@ -364,6 +391,8 @@ if GVM_SOCKET:
 print(f"[{now()}] GVM_TRANSPORT={GVM_TRANSPORT}")
 print(f"[{now()}] DETAIL_LEVEL={DETAIL_LEVEL} | TOP_N={TOP_N} | REPORT_MAX_KB={REPORT_MAX_KB}KB | FINDING_TEXT_MAX={FINDING_TEXT_MAX}")
 print(f"[{now()}] SNAPSHOT_ALWAYS_SEND={SNAPSHOT_ALWAYS_SEND} | FORCE_SEND_EVERY_CYCLES={FORCE_SEND_EVERY_CYCLES}")
+print(f"[{now()}] ARTIFACTS_DIR={ARTIFACTS_DIR}")
+print(f"[{now()}] OPENVAS_STATUS_NORMALIZATION=enabled (Done->completed, Running/Pending not sent)")
 
 lock_path = f"{STATE_PATH}.lock"
 args = parse_args()
@@ -429,6 +458,8 @@ while True:
             if len(tasks_xml.encode("utf-8", errors="ignore")) > (META_MAX_KB * 1024):
                 raise ValueError("XML de tasks excede META_MAX_KB")
 
+            write_text_file(LAST_TASKS_XML_PATH, tasks_xml)
+
             root = ET.fromstring(tasks_xml)
             tasks = list(_iter_by_lname(root, "task"))
             print(f"[{now()}] Tareas detectadas: {len(tasks)}")
@@ -479,13 +510,17 @@ while True:
 
                         task_id = (task.get("id") or "").strip()
                         task_name = ""
-                        task_status = ""
+                        task_status_raw = _extract_task_status(task)
+                        task_status = map_status(task_status_raw or "completed", default="completed")
                         for el in list(task):
                             tag = _lname(el.tag)
                             if tag == "name":
                                 task_name = (el.text or "").strip()
-                            elif tag == "status":
-                                task_status = (el.text or "").strip().lower()
+
+                        if task_status in {"pending", "running"}:
+                            if DEBUG:
+                                print(f"[{now()}] task[{idx}] omitida por status no terminal: {task_status_raw or task_status}")
+                            continue
 
                         severities = _parse_result_count(task)
 
@@ -520,6 +555,9 @@ while True:
                                         print(report_xml[:3000])
                                         if len(report_xml) > 3000:
                                             print(f"... (truncated, total {len(report_xml)} bytes)")
+
+                            if report_xml:
+                                write_text_file(LAST_REPORT_XML_PATH, report_xml)
 
                             if severities is None:
                                 severities = extract_severities(report_xml, max_kb=REPORT_MAX_KB)
@@ -563,11 +601,14 @@ while True:
                             "idempotency_key": idempotency_key,
                             "scanned_at": scanned_at,
                             "event_type": "vuln_scan_report",
+                            "scanner_type": "openvas",
+                            "status": task_status,
                             "scan_summary": {
                                 "scanner_type": "openvas",
                                 "scan_id": report_id,
                                 "scan_name": task_name,
-                                "status": task_status or "completed",
+                                "status": task_status,
+                                "status_raw": task_status_raw or "Completed",
                                 "total_hosts": total_hosts,
                                 "scanned_at": scanned_at,
                                 "cvss_max": cvss_max,
@@ -595,6 +636,9 @@ while True:
                             "findings": findings or [],
                         }
 
+                        write_json_file(LAST_REPORT_JSON_PATH, payload)
+                        write_json_file(LAST_PAYLOAD_PATH, payload)
+
                         if DEBUG_FLAG:
                             payload_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
                             print(f"[{now()}] [DEBUG] SENDING payload report_id={report_id} task={task_name} findings={len(findings or [])} payload_size={payload_bytes/1024:.1f}KB idempotency_key={idempotency_key}")
@@ -605,8 +649,23 @@ while True:
                             api_key=TXDXAI_API_KEY,
                             company_id=TXDXAI_COMPANY_ID,
                             payload=payload,
-                            timeout=60,
+                            timeout=15,
                             require_https=True,
+                        )
+
+                        write_json_file(
+                            LAST_DELIVERY_META_PATH,
+                            {
+                                "saved_at_utc": now(),
+                                "scan_id": report_id,
+                                "task_id": task_id,
+                                "task_name": task_name,
+                                "status_raw": task_status_raw,
+                                "status_normalized": task_status,
+                                "delivery_success": ok,
+                                "ingest_url": TXDXAI_INGEST_URL,
+                                "output_mode": OUTPUT_MODE,
+                            },
                         )
 
                         if DEBUG_FLAG:

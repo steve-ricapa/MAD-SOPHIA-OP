@@ -92,6 +92,19 @@ def main():
             all_hosts = zbx.get_hosts()
             all_triggers = zbx.get_all_triggers(limit=cfg.triggers_limit)
 
+            atomic_json_dump(
+                cfg.raw_snapshot_path,
+                {
+                    "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "time_from": time_from,
+                    "time_to": now,
+                    "problems": problems,
+                    "events": events,
+                    "hosts": all_hosts,
+                    "triggers": all_triggers,
+                },
+            )
+
             if len(problems) >= cfg.problems_limit:
                 print(f"[{timestamp}] [WARN] Problems limit reached ({cfg.problems_limit}). Consider increasing PROBLEMS_LIMIT or paginating.")
             if len(all_triggers) >= cfg.triggers_limit:
@@ -178,6 +191,17 @@ def main():
             )
 
             write_json(cfg.debug_report_path, report)
+            write_json(
+                cfg.delivery_meta_path,
+                {
+                    "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "scan_id": scan_id,
+                    "mode": cfg.output_mode,
+                    "sent": delivery_result.get("sent", False),
+                    "queued": delivery_result.get("queued", False),
+                    "flushed_from_queue": delivery_result.get("flushed_from_queue", 0),
+                },
+            )
 
             state["snapshot_signature"] = current_signature
             state["unchanged_cycles"] = 0

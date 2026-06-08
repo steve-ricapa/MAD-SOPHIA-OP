@@ -29,6 +29,8 @@ INSIGHTVM_BANNER = r"""
                    |___/
 """
 
+ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "runtime" / "insightvm"
+
 
 def setup_logging(level: str, log_file: Optional[str]) -> None:
     lvl = getattr(logging, level.upper(), logging.INFO)
@@ -51,7 +53,9 @@ def setup_logging(level: str, log_file: Optional[str]) -> None:
 
 
 def save_json(path: str, data: dict) -> None:
-    with open(path, "w", encoding="utf-8") as f:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
@@ -60,11 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p.add_argument("--env", default=".env", help="Ruta del archivo .env (default: .env)")
     p.add_argument("--once", action="store_true", help="Run one cycle and exit")
-    p.add_argument("--output", default="security_data.json", help="Salida JSON cruda")
-    p.add_argument("--normalized-output", default="security_data_normalized.json", help="Salida JSON normalizada")
+    p.add_argument("--output", default=str(ARTIFACTS_DIR / "security_data.json"), help="Salida JSON cruda")
+    p.add_argument("--normalized-output", default=str(ARTIFACTS_DIR / "security_data_normalized.json"), help="Salida JSON normalizada")
 
-    p.add_argument("--assets-csv", default="assets_table.csv", help="CSV tipo tabla de assets")
-    p.add_argument("--assets-json", default="assets_table.json", help="JSON tipo tabla de assets")
+    p.add_argument("--assets-csv", default=str(ARTIFACTS_DIR / "assets_table.csv"), help="CSV tipo tabla de assets")
+    p.add_argument("--assets-json", default=str(ARTIFACTS_DIR / "assets_table.json"), help="JSON tipo tabla de assets")
     p.add_argument("--export-assets", action="store_true", help="Generar assets_table.csv y assets_table.json")
 
     p.add_argument("--page-size", type=int, default=200, help="Tamaño de página para InsightVM")
@@ -219,7 +223,7 @@ def execute_run(args, log, general_cfg, backend_cfg, state_manager) -> None:
         current_signature[:16],
     )
 
-    save_json("last_payload_sent.json", report)
+    save_json(str(ARTIFACTS_DIR / "last_payload_sent.json"), report)
 
     backend = BackendClient(
         ingest_url=backend_cfg.url,
@@ -236,6 +240,16 @@ def execute_run(args, log, general_cfg, backend_cfg, state_manager) -> None:
         queue_enabled=backend_cfg.queue_enabled,
         queue_dir=backend_cfg.queue_dir,
         queue_flush_max=backend_cfg.queue_flush_max,
+    )
+
+    save_json(
+        str(ARTIFACTS_DIR / "last_delivery_meta.json"),
+        {
+            "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+            "scan_id": scan_id,
+            "delivery_result": delivery_result,
+            "ingest_url": backend_cfg.url,
+        },
     )
 
     state_manager.state["snapshot_signature"] = current_signature

@@ -94,6 +94,47 @@ def _save_payload_debug(
         json.dump(meta, mf, ensure_ascii=False, indent=2)
 
 
+def write_json_file(path: str | Path, data: Any) -> None:
+    target_path = Path(path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = target_path.with_suffix(target_path.suffix + ".tmp")
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+    os.replace(temp_path, target_path)
+
+
+def write_text_file(path: str | Path, text: str) -> None:
+    target_path = Path(path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = target_path.with_suffix(target_path.suffix + ".tmp")
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    os.replace(temp_path, target_path)
+
+
+def map_status(raw_status: Any, default: str = "unknown") -> str:
+    value = str(raw_status or "").strip().lower()
+    if not value:
+        return default
+
+    status_map = {
+        "done": "completed",
+        "complete": "completed",
+        "completed": "completed",
+        "finished": "completed",
+        "running": "running",
+        "run": "running",
+        "in progress": "running",
+        "in_progress": "running",
+        "processing": "running",
+        "requested": "pending",
+        "pending": "pending",
+        "queued": "pending",
+        "new": "pending",
+    }
+    return status_map.get(value, value)
+
+
 def _root_cause(e: BaseException) -> str:
     if getattr(e, "__cause__", None) is not None:
         c = e.__cause__
@@ -124,17 +165,6 @@ def format_exception(step: str, e: BaseException, context: Optional[dict[str, An
         parts.append(traceback.format_exc())
 
     return "\n".join(parts)
-
-
-def map_status(raw_status: str) -> str:
-    value = (raw_status or "").strip().lower()
-    if value in {"running", "run", "in progress", "in_progress"}:
-        return "running"
-    if value in {"pending", "queued", "requested"}:
-        return "pending"
-    if value in {"completed", "done", "finished"}:
-        return "completed"
-    return value or "unknown"
 
 
 class FileLock:

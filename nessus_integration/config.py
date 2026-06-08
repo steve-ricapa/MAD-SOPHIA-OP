@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 @dataclass(frozen=True)
 class Config:
     base_dir: Path
+    artifacts_dir: Path
     nessus_base_url: str
     nessus_access_key: str
     nessus_secret_key: str
@@ -33,6 +34,7 @@ class Config:
     state_path: Path
     debug_report_path: Path
     last_payload_path: Path
+    delivery_meta_path: Path
     raw_snapshot_path: Path
     mad_version: str
     integration_version: str
@@ -75,6 +77,7 @@ def _parse_scan_ids(raw: Optional[str]) -> Optional[set[int]]:
 
 def load_config() -> Config:
     base_dir = Path(__file__).resolve().parent
+    root_dir = base_dir.parent
     load_dotenv(base_dir / ".env")
 
     nessus_base_url = os.getenv("NESSUS_BASE_URL", "").strip()
@@ -105,9 +108,11 @@ def load_config() -> Config:
     queue_enabled = _env_bool("NESSUS_QUEUE_ENABLED", _env_bool("QUEUE_ENABLED", True))
     queue_flush_max = int(os.getenv("NESSUS_QUEUE_FLUSH_MAX") or os.getenv("QUEUE_FLUSH_MAX", "20"))
 
+    artifacts_dir_raw = os.getenv("NESSUS_ARTIFACTS_DIR") or os.getenv("ARTIFACTS_DIR", "runtime/nessus")
     state_raw = os.getenv("STATE_FILE", "state.json")
     debug_report_raw = os.getenv("DEBUG_REPORT_PATH", "debug_report.json")
     last_payload_raw = os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
+    delivery_meta_raw = os.getenv("NESSUS_DELIVERY_META_PATH") or os.getenv("DELIVERY_META_PATH", "last_delivery_meta.json")
     raw_snapshot_raw = os.getenv("NESSUS_RAW_SNAPSHOT_PATH") or os.getenv("RAW_SNAPSHOT_PATH", "raw_scans_snapshot.json")
     mad_version = (os.getenv("MAD_VERSION") or "2.3.0").strip()
     integration_version = (os.getenv("NESSUS_INTEGRATION_VERSION") or os.getenv("INTEGRATION_VERSION", "1.0.0")).strip()
@@ -118,11 +123,13 @@ def load_config() -> Config:
     folder_raw = os.getenv("NESSUS_FOLDER_ID", "").strip()
     folder_id_filter = int(folder_raw) if folder_raw.isdigit() else None
 
-    state_path = _resolve_path(base_dir, state_raw, "state.json")
-    debug_report_path = _resolve_path(base_dir, debug_report_raw, "debug_report.json")
-    last_payload_path = _resolve_path(base_dir, last_payload_raw, "last_payload_sent.json")
-    raw_snapshot_path = _resolve_path(base_dir, raw_snapshot_raw, "raw_scans_snapshot.json")
-    queue_dir = _resolve_path(base_dir, queue_dir_raw, "queue")
+    artifacts_dir = _resolve_path(root_dir, artifacts_dir_raw, "runtime/nessus")
+    state_path = _resolve_path(artifacts_dir, state_raw, "state.json")
+    debug_report_path = _resolve_path(artifacts_dir, debug_report_raw, "debug_report.json")
+    last_payload_path = _resolve_path(artifacts_dir, last_payload_raw, "last_payload_sent.json")
+    delivery_meta_path = _resolve_path(artifacts_dir, delivery_meta_raw, "last_delivery_meta.json")
+    raw_snapshot_path = _resolve_path(artifacts_dir, raw_snapshot_raw, "raw_scans_snapshot.json")
+    queue_dir = _resolve_path(artifacts_dir, queue_dir_raw, "queue")
 
     if not nessus_base_url:
         raise SystemExit("NESSUS_BASE_URL es requerido.")
@@ -147,6 +154,7 @@ def load_config() -> Config:
 
     return Config(
         base_dir=base_dir,
+        artifacts_dir=artifacts_dir,
         nessus_base_url=nessus_base_url,
         nessus_access_key=nessus_access_key,
         nessus_secret_key=nessus_secret_key,
@@ -171,6 +179,7 @@ def load_config() -> Config:
         state_path=state_path,
         debug_report_path=debug_report_path,
         last_payload_path=last_payload_path,
+        delivery_meta_path=delivery_meta_path,
         raw_snapshot_path=raw_snapshot_path,
         mad_version=mad_version,
         integration_version=integration_version,
