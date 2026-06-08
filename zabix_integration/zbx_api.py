@@ -5,6 +5,10 @@ from typing import Any, Dict, Optional
 import urllib3
 
 
+def _log(message: str) -> None:
+    print(message, flush=True)
+
+
 class ZabbixClient:
     def __init__(
         self,
@@ -81,7 +85,7 @@ class ZabbixClient:
                     last_error = f"HTTP {r.status_code}: {(r.text or '')[:300]}"
                     if attempt == self.retries:
                         break
-                    print(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
+                    _log(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
                     time.sleep(self.backoff_seconds)
                     continue
 
@@ -91,7 +95,7 @@ class ZabbixClient:
                     last_error = f"JSON decode error: {type(exc).__name__}: {exc}"
                     if attempt == self.retries:
                         break
-                    print(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
+                    _log(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
                     time.sleep(self.backoff_seconds)
                     continue
 
@@ -104,7 +108,7 @@ class ZabbixClient:
                     last_error = f"Zabbix JSON-RPC error: {json.dumps(data['error'], ensure_ascii=False)}"
                     if attempt == self.retries:
                         break
-                    print(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
+                    _log(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
                     time.sleep(self.backoff_seconds)
                     continue
 
@@ -115,14 +119,14 @@ class ZabbixClient:
                 last_error = "Response missing 'result' key"
                 if attempt == self.retries:
                     break
-                print(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
+                _log(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
                 time.sleep(self.backoff_seconds)
 
             except requests.RequestException as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 if attempt == self.retries:
                     break
-                print(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
+                _log(f"[WARN] Zabbix API attempt {attempt}/{self.retries} failed for {method}: {last_error}")
                 time.sleep(self.backoff_seconds)
 
         raise RuntimeError(f"Zabbix API request failed after {self.retries} attempts: {last_error}")
@@ -148,7 +152,7 @@ class ZabbixClient:
         if trigger_ids:
             triggers = self.call("trigger.get", {
                 "triggerids": trigger_ids,
-                "selectHosts": ["hostid", "name", "host", "inventory"],
+                "selectHosts": ["hostid", "name", "host"],
                 "output": ["triggerid"]
             })
 
@@ -162,8 +166,6 @@ class ZabbixClient:
     def get_hosts(self):
         return self.call("host.get", {
             "output": ["hostid", "name", "host", "status"],
-            "selectInventory": "extend",
-            "selectInterfaces": "extend",
             "filter": {"status": "0"}
         })
 
@@ -176,7 +178,7 @@ class ZabbixClient:
     def get_all_triggers(self, limit: int = 5000):
         return self.call("trigger.get", {
             "output": ["triggerid", "description", "priority", "status", "lastchange"],
-            "selectHosts": ["hostid", "name", "host", "inventory"],
+            "selectHosts": ["hostid", "name", "host"],
             "selectInterfaces": ["ip", "port", "main"],
             "selectTags": "extend",
             "monitored": True,

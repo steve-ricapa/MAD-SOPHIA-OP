@@ -22,6 +22,20 @@ ZABBIX_BANNER = r"""
 """
 
 
+def _log(message: str) -> None:
+    print(message, flush=True)
+
+
+def _timed_fetch(timestamp: str, label: str, fetcher):
+    _log(f"[{timestamp}] Fetching {label}...")
+    started = time.perf_counter()
+    data = fetcher()
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    size = len(data) if hasattr(data, "__len__") else "unknown"
+    _log(f"[{timestamp}] Fetched {label}: count={size} duration_ms={duration_ms}")
+    return data
+
+
 def _initial_state() -> Dict[str, Any]:
     return {
         "snapshot_signature": "",
@@ -64,9 +78,11 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-    print("[INFO] Starting Zabbix Real-time Agent...")
-    print(ZABBIX_BANNER)
+    _log("[INFO] Starting Zabbix Real-time Agent...")
+    _log(ZABBIX_BANNER)
     cfg = load_config()
+    cfg.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    cfg.queue_dir.mkdir(parents=True, exist_ok=True)
     zbx = ZabbixClient(
         cfg.api_url,
         api_token=cfg.api_token,
@@ -87,10 +103,22 @@ def main():
             now = int(datetime.now(timezone.utc).timestamp())
             time_from = now - cfg.hours * 3600
 
-            problems = zbx.get_problems(time_from=time_from, limit=cfg.problems_limit)
-            events = zbx.get_events(time_from=time_from, limit=cfg.events_limit) if cfg.include_events else []
-            all_hosts = zbx.get_hosts()
-            all_triggers = zbx.get_all_triggers(limit=cfg.triggers_limit)
+            problems = _timed_fetch(
+                timestamp,
+                "problems",
+                lambda: zbx.get_problems(time_from=time_from, limit=cfg.problems_limit),
+            )
+            events = _timed_fetch(
+                timestamp,
+                "events",
+                lambda: zbx.get_events(time_from=time_from, limit=cfg.events_limit),
+            ) if cfg.include_events else []
+            all_hosts = _timed_fetch(timestamp, "hosts", zbx.get_hosts)
+            all_triggers = _timed_fetch(
+                timestamp,
+                "triggers",
+                lambda: zbx.get_all_triggers(limit=cfg.triggers_limit),
+            )
 
             atomic_json_dump(
                 cfg.raw_snapshot_path,
@@ -106,13 +134,13 @@ def main():
             )
 
             if len(problems) >= cfg.problems_limit:
-                print(f"[{timestamp}] [WARN] Problems limit reached ({cfg.problems_limit}). Consider increasing PROBLEMS_LIMIT or paginating.")
+                _log(f"[{timestamp}] [WARN] Problems limit reached ({cfg.problems_limit}). Consider increasing PROBLEMS_LIMIT or paginating.")
             if len(all_triggers) >= cfg.triggers_limit:
-                print(f"[{timestamp}] [WARN] Triggers limit reached ({cfg.triggers_limit}). Consider increasing TRIGGERS_LIMIT or paginating.")
+                _log(f"[{timestamp}] [WARN] Triggers limit reached ({cfg.triggers_limit}). Consider increasing TRIGGERS_LIMIT or paginating.")
             if cfg.include_events and len(events) >= cfg.events_limit:
-                print(f"[{timestamp}] [WARN] Events limit reached ({cfg.events_limit}). Consider increasing EVENTS_LIMIT or disabling INCLUDE_EVENTS.")
+                _log(f"[{timestamp}] [WARN] Events limit reached ({cfg.events_limit}). Consider increasing EVENTS_LIMIT or disabling INCLUDE_EVENTS.")
 
-            print(f"[{timestamp}] Zabbix Scan: {len(all_hosts)} hosts and {len(all_triggers)} triggers identified.")
+            _log(f"[{timestamp}] Zabbix Scan: {len(all_hosts)} hosts and {len(all_triggers)} triggers identified.")
 
             current_signature = build_snapshot_signature(problems, events, all_hosts, all_triggers)
             prev_signature = str(state.get("snapshot_signature", ""))
@@ -138,7 +166,7 @@ def main():
 
             if not should_send:
                 state["last_send_result"] = "skipped_no_change"
-                print(
+                _log(
                     f"[{timestamp}] Snapshot sin cambios "
                     f"(ciclo={unchanged_cycles}/{cfg.force_send_every_cycles}) "
                     f"reason={send_reason}"
@@ -172,7 +200,7 @@ def main():
                 source=cfg.source,
             )
 
-            print(f"[{timestamp}] Prepared {len(report['findings'])} findings for delivery (reason={send_reason}).")
+            _log(f"[{timestamp}] Prepared {len(report['findings'])} findings for delivery (reason={send_reason}).")
 
             delivery_result = deliver(
                 mode=cfg.output_mode,
@@ -209,7 +237,7 @@ def main():
             state["last_idempotency_key"] = idempotency_key
             state["last_send_result"] = "sent" if delivery_result.get("sent") else "queued"
 
-            print(
+            _log(
                 f"[{timestamp}] Report sent | findings={len(report['findings'])} "
                 f"sent={delivery_result.get('sent')} "
                 f"queued={delivery_result.get('queued')} "
@@ -220,13 +248,13 @@ def main():
             save_state(cfg.state_path, state)
 
         except Exception as e:
-            print(f"[ERROR] Cycle failure: {str(e)}")
-            print(f"[INFO] Retrying in {cfg.backoff_seconds} seconds...")
+            _log(f"[ERROR] Cycle failure: {str(e)}")
+            _log(f"[INFO] Retrying in {cfg.backoff_seconds} seconds...")
             time.sleep(cfg.backoff_seconds)
             continue
 
         if args.once:
-            print("[INFO] Single-run mode completed. Exiting.")
+            _log("[INFO] Single-run mode completed. Exiting.")
             break
 
         time.sleep(cfg.interval)
