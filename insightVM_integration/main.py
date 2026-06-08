@@ -27,6 +27,8 @@ INSIGHTVM_BANNER = r"""
                   |___/
 """
 
+ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "runtime" / "insightvm"
+
 
 def setup_logging(level: str, log_file: Optional[str]) -> None:
     lvl = getattr(logging, level.upper(), logging.INFO)
@@ -49,7 +51,9 @@ def setup_logging(level: str, log_file: Optional[str]) -> None:
 
 
 def save_json(path: str, data: dict) -> None:
-    with open(path, "w", encoding="utf-8") as f:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
@@ -57,11 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Agente InsightVM Unificado")
 
     p.add_argument("--env", default=".env", help="Ruta del archivo .env (default: .env)")
-    p.add_argument("--output", default="security_data.json", help="Salida JSON cruda")
-    p.add_argument("--normalized-output", default="security_data_normalized.json", help="Salida JSON normalizada")
+    p.add_argument("--output", default=str(ARTIFACTS_DIR / "security_data.json"), help="Salida JSON cruda")
+    p.add_argument("--normalized-output", default=str(ARTIFACTS_DIR / "security_data_normalized.json"), help="Salida JSON normalizada")
 
-    p.add_argument("--assets-csv", default="assets_table.csv", help="CSV tipo tabla de assets")
-    p.add_argument("--assets-json", default="assets_table.json", help="JSON tipo tabla de assets")
+    p.add_argument("--assets-csv", default=str(ARTIFACTS_DIR / "assets_table.csv"), help="CSV tipo tabla de assets")
+    p.add_argument("--assets-json", default=str(ARTIFACTS_DIR / "assets_table.json"), help="JSON tipo tabla de assets")
     p.add_argument("--export-assets", action="store_true", help="Generar assets_table.csv y assets_table.json")
 
     p.add_argument("--page-size", type=int, default=200, help="Tamaño de página para InsightVM")
@@ -204,10 +208,23 @@ def execute_run(args, log) -> None:
                 "findings": delta_findings,
             }
             
-            save_json("last_payload_sent.json", delta_report)
+            save_json(str(ARTIFACTS_DIR / "last_payload_sent.json"), delta_report)
             
             backend = BackendClient(ingest_url=backend_cfg.url, api_key=backend_cfg.api_key, verify_ssl=backend_cfg.verify)
-            if backend.send_data(delta_report):
+            delivery_success = backend.send_data(delta_report)
+            save_json(
+                str(ARTIFACTS_DIR / "last_delivery_meta.json"),
+                {
+                    "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "scan_id": scan_id,
+                    "delivery_success": delivery_success,
+                    "status_code": backend.last_status_code,
+                    "response_excerpt": backend.last_response_text[:1000],
+                    "error_text": backend.last_error,
+                    "ingest_url": backend_cfg.url,
+                },
+            )
+            if delivery_success:
                 log.info("Reporte enviado exitosamente.")
                 state_manager.save()
             else:

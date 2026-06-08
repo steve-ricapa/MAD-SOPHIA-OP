@@ -19,13 +19,16 @@ from config import (
     GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_TIMEOUT,
     DEBUG, MAX_ERROR_REPEAT, DETAIL_LEVEL, TOP_N, REPORT_MAX_KB, FINDING_TEXT_MAX,
     STATE_TTL_DAYS, STATE_MAX_ITEMS,
+    LAST_TASKS_XML_PATH, LAST_REPORT_XML_PATH, LAST_REPORT_JSON_PATH,
+    LAST_PAYLOAD_PATH, LAST_DELIVERY_META_PATH,
     validate_config,
 )
 
 from services import (
     FileLock, load_state, save_state, purge_sent,
     extract_severities, extract_report_stats, extract_findings,
-    emit_payload, format_exception
+    emit_payload, format_exception, map_status,
+    write_json_file, write_text_file,
 )
 
 OPENVAS_BANNER = r"""
@@ -130,8 +133,8 @@ def simulated_tasks_xml() -> str:
     return """
     <get_tasks_response xmlns="urn:gmp">
       <tasks>
-        <task id="sim-task-1"><name>Sim Task</name><last_report><report id="sim-report-1"/></last_report></task>
-        <task id="sim-task-2"><name>Sim Task 2</name><last_report><report id="sim-report-2"/></last_report></task>
+        <task id="sim-task-1"><name>Sim Task</name><status>Done</status><last_report><report id="sim-report-1"/></last_report></task>
+        <task id="sim-task-2"><name>Sim Task 2</name><status>Completed</status><last_report><report id="sim-report-2"/></last_report></task>
       </tasks>
     </get_tasks_response>
     """.strip()
@@ -198,6 +201,13 @@ def _parse_result_count(task_node: ET.Element) -> dict[str, int] | None:
         return None
 
     return out
+
+
+def _extract_task_status(task_node: ET.Element) -> str:
+    for el in task_node.iter():
+        if _lname(el.tag) == "status":
+            return (el.text or "").strip()
+    return ""
 
 
 def _should_include_findings(detail: str) -> bool:
@@ -351,6 +361,8 @@ while True:
             if len(tasks_xml.encode("utf-8", errors="ignore")) > (META_MAX_KB * 1024):
                 raise ValueError("XML de tasks excede META_MAX_KB")
 
+            write_text_file(LAST_TASKS_XML_PATH, tasks_xml)
+
             root = ET.fromstring(tasks_xml)
             tasks = list(_iter_by_lname(root, "task"))
             print(f"[{now()}] Tareas detectadas: {len(tasks)}")
@@ -387,13 +399,25 @@ while True:
                         continue
 
                     task_id = (task.get("id") or "").strip()
+                    task_status_raw = _extract_task_status(task)
+                    task_status = map_status(task_status_raw or "completed", default="completed")
                     task_name = ""
                     for el in list(task):
                         if _lname(el.tag) == "name":
                             task_name = (el.text or "").strip()
                             break
 
-                    meta: dict[str, Any] = {"taskId": task_id, "taskName": task_name}
+                    meta: dict[str, Any] = {
+                        "taskId": task_id,
+                        "taskName": task_name,
+                        "statusRaw": task_status_raw,
+                        "statusNormalized": task_status,
+                    }
+
+                    if task_status in {"pending", "running"}:
+                        if DEBUG:
+                            print(f"[{now()}] task[{idx}] omitida por status no terminal: {task_status_raw or task_status}")
+                        continue
 
                     severities = _parse_result_count(task)
 
@@ -421,6 +445,9 @@ while True:
                                 timeout=GVM_TIMEOUT,
                             ) as client:
                                 report_xml = client.get_report(report_id)
+
+                        if report_xml:
+                            write_text_file(LAST_REPORT_XML_PATH, report_xml)
 
                         if severities is None:
                             severities = extract_severities(report_xml, max_kb=REPORT_MAX_KB)
@@ -463,15 +490,19 @@ while True:
                         "api_key": TXDXAI_API_KEY,
                         "scanned_at": scanned_at,
                         "event_type": "vuln_scan_report",
+                        "scanner_type": "openvas",
+                        "status": task_status,
                         
                         # Requisito: Todos los contadores se mueven aquÃ­. SE ELIMINAN DE LA RAÃZ.
                         "scan_summary": {
                             "scan_id": report_id,
                             "scan_name": task_name,
-                            "status": "completed",
+                            "status": task_status,
+                            "status_raw": task_status_raw or "Completed",
                             "total_hosts": total_hosts,
                             "scanned_at": scanned_at,
                             "cvss_max": cvss_max,
+                            "scanner_type": "openvas",
                             "critical_count": counts.get("critical", 0),
                             "high_count": counts.get("high", 0),
                             "medium_count": counts.get("medium", 0),
@@ -488,6 +519,9 @@ while True:
                         "findings": findings or [],
                     }
 
+                    write_json_file(LAST_REPORT_JSON_PATH, payload)
+                    write_json_file(LAST_PAYLOAD_PATH, payload)
+
                     ok = emit_payload(
                         output_mode=OUTPUT_MODE,
                         url=TXDXAI_INGEST_URL,
@@ -496,6 +530,21 @@ while True:
                         payload=payload,
                         timeout=15,
                         require_https=True,
+                    )
+
+                    write_json_file(
+                        LAST_DELIVERY_META_PATH,
+                        {
+                            "saved_at_utc": now(),
+                            "scan_id": report_id,
+                            "task_id": task_id,
+                            "task_name": task_name,
+                            "status_raw": task_status_raw,
+                            "status_normalized": task_status,
+                            "delivery_success": ok,
+                            "ingest_url": TXDXAI_INGEST_URL,
+                            "output_mode": OUTPUT_MODE,
+                        },
                     )
 
                     if ok:

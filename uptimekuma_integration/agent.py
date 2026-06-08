@@ -95,23 +95,44 @@ def run_once(cfg, collector: UptimeKumaCollector, state: Dict[str, Any]) -> Dict
         findings=findings_result["findings"],
     )
 
-    delivery_result = deliver(
-        mode=cfg.output_mode,
-        report=report,
-        webhook_url=cfg.webhook_url,
-        api_key=cfg.api_key,
-        idempotency_key=idempotency_key,
-        retries=cfg.http_retries,
-        backoff_seconds=cfg.backoff_seconds,
-        timeout=cfg.request_timeout,
-        verify_ssl=cfg.verify_ssl,
-        last_payload_path=cfg.last_payload_path,
-        queue_enabled=cfg.queue_enabled,
-        queue_dir=cfg.queue_dir,
-        queue_flush_max=cfg.queue_flush_max,
-    )
-
     write_json(cfg.debug_report_path, report)
+    write_json(cfg.last_payload_path, report)
+
+    delivery_result = {"sent": False, "queued": False, "flushed_from_queue": 0, "error": ""}
+    try:
+        delivery_result = deliver(
+            mode=cfg.output_mode,
+            report=report,
+            webhook_url=cfg.webhook_url,
+            api_key=cfg.api_key,
+            idempotency_key=idempotency_key,
+            retries=cfg.http_retries,
+            backoff_seconds=cfg.backoff_seconds,
+            timeout=cfg.request_timeout,
+            verify_ssl=cfg.verify_ssl,
+            last_payload_path=cfg.last_payload_path,
+            queue_enabled=cfg.queue_enabled,
+            queue_dir=cfg.queue_dir,
+            queue_flush_max=cfg.queue_flush_max,
+        )
+    except Exception as exc:
+        delivery_result["error"] = str(exc)
+        raise
+    finally:
+        write_json(
+            cfg.delivery_meta_path,
+            {
+                "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+                "scan_id": scan_id,
+                "idempotency_key": idempotency_key,
+                "mode": cfg.output_mode,
+                "sent": delivery_result.get("sent", False),
+                "queued": delivery_result.get("queued", False),
+                "flushed_from_queue": delivery_result.get("flushed_from_queue", 0),
+                "error": delivery_result.get("error", ""),
+            },
+        )
+
     next_state["monitor_status"] = findings_result["current_statuses"]
     next_state["unchanged_cycles"] = 0
     next_state["has_sent_once"] = True

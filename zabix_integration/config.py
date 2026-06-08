@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 @dataclass(frozen=True)
 class Config:
     base_dir: Path
+    artifacts_dir: Path
     api_url: str
     user: str
     password: str
@@ -26,6 +27,8 @@ class Config:
     events_limit: int
     debug_report_path: Path
     last_payload_path: Path
+    delivery_meta_path: Path
+    raw_snapshot_path: Path
     include_events: bool
 
 
@@ -45,6 +48,7 @@ def _resolve_path(base_dir: Path, raw_path: str, fallback_name: str) -> Path:
 def load_config() -> Config:
     load_dotenv()
     base_dir = Path(__file__).resolve().parent
+    root_dir = base_dir.parent
 
     # Zabbix Source
     api_url = os.getenv("ZABBIX_API_URL", "").strip()
@@ -71,13 +75,19 @@ def load_config() -> Config:
     problems_limit = int(os.getenv("ZABBIX_PROBLEMS_LIMIT") or os.getenv("PROBLEMS_LIMIT", "2000"))
     triggers_limit = int(os.getenv("ZABBIX_TRIGGERS_LIMIT") or os.getenv("TRIGGERS_LIMIT", "5000"))
     events_limit = int(os.getenv("ZABBIX_EVENTS_LIMIT") or os.getenv("EVENTS_LIMIT", "2000"))
+    artifacts_dir_raw = os.getenv("ZABBIX_ARTIFACTS_DIR") or os.getenv("ARTIFACTS_DIR", "runtime/zabbix")
     debug_report_raw = os.getenv("ZABBIX_DEBUG_REPORT_PATH") or os.getenv("DEBUG_REPORT_PATH", "debug_report.json")
     last_payload_raw = os.getenv("ZABBIX_LAST_PAYLOAD_PATH") or os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
+    delivery_meta_raw = os.getenv("ZABBIX_DELIVERY_META_PATH") or os.getenv("DELIVERY_META_PATH", "last_delivery_meta.json")
+    raw_snapshot_raw = os.getenv("ZABBIX_RAW_SNAPSHOT_PATH") or os.getenv("RAW_SNAPSHOT_PATH", "raw_snapshot.json")
     include_events = _env_bool("ZABBIX_INCLUDE_EVENTS", _env_bool("INCLUDE_EVENTS", False))
 
-    state_path = _resolve_path(base_dir, state_raw, "state.json")
-    debug_report_path = _resolve_path(base_dir, debug_report_raw, "debug_report.json")
-    last_payload_path = _resolve_path(base_dir, last_payload_raw, "last_payload_sent.json")
+    artifacts_dir = _resolve_path(root_dir, artifacts_dir_raw, "runtime/zabbix")
+    state_path = _resolve_path(artifacts_dir, state_raw, "state.json")
+    debug_report_path = _resolve_path(artifacts_dir, debug_report_raw, "debug_report.json")
+    last_payload_path = _resolve_path(artifacts_dir, last_payload_raw, "last_payload_sent.json")
+    delivery_meta_path = _resolve_path(artifacts_dir, delivery_meta_raw, "last_delivery_meta.json")
+    raw_snapshot_path = _resolve_path(artifacts_dir, raw_snapshot_raw, "raw_snapshot.json")
 
     if not api_url:
         raise SystemExit("Falta ZABBIX_API_URL.")
@@ -88,6 +98,7 @@ def load_config() -> Config:
     
     return Config(
         base_dir=base_dir,
+        artifacts_dir=artifacts_dir,
         api_url=api_url,
         user=user,
         password=password,
@@ -107,5 +118,7 @@ def load_config() -> Config:
         events_limit=events_limit,
         debug_report_path=debug_report_path,
         last_payload_path=last_payload_path,
+        delivery_meta_path=delivery_meta_path,
+        raw_snapshot_path=raw_snapshot_path,
         include_events=include_events,
     )

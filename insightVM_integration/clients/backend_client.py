@@ -19,6 +19,9 @@ class BackendClient:
         self.api_key = api_key
         self.verify_ssl = verify_ssl
         self.session = requests.Session()
+        self.last_status_code: Optional[int] = None
+        self.last_response_text: str = ""
+        self.last_error: str = ""
 
         retry = Retry(
             total=3,
@@ -31,6 +34,9 @@ class BackendClient:
     def send_data(self, data: Dict[str, Any]) -> bool:
         """Envía datos al ingest_url vía POST."""
         headers = {"Content-Type": "application/json"}
+        self.last_status_code = None
+        self.last_response_text = ""
+        self.last_error = ""
         if self.api_key:
             headers["x-api-key"] = self.api_key # Usamos x-api-key como estándar común
             headers["Authorization"] = f"Bearer {self.api_key}" # Opcional: mantengo ambos por si acaso
@@ -44,6 +50,8 @@ class BackendClient:
                 verify=self.verify_ssl,
                 timeout=60
             )
+            self.last_status_code = r.status_code
+            self.last_response_text = r.text or ""
             if r.status_code >= 400:
                 log.error("Error del servidor (HTTP %s): %s", r.status_code, r.text)
                 return False
@@ -51,5 +59,6 @@ class BackendClient:
             log.info("Datos enviados exitosamente (HTTP %s)", r.status_code)
             return True
         except Exception as e:
+            self.last_error = str(e)
             log.error("Error de conexión al enviar datos: %s", e)
             return False

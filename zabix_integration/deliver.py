@@ -103,10 +103,15 @@ def deliver(
     backoff_seconds: int = 5,
     last_payload_path: Optional[str | Path] = None,
     timeout: int = 30,
-) -> None:
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {"sent": False, "mode": mode}
+
+    if last_payload_path:
+        write_json(last_payload_path, report)
+
     if mode == "stdout":
         send_stdout(report)
-        return
+        return result
 
     if mode in ("webhook", "all"):
         if not webhook_url:
@@ -115,7 +120,7 @@ def deliver(
         print(f"[INFO] Synchronizing data with TxDxAI Backend...")
         payload = {"text": report} if isinstance(report, str) else report
         send_webhook(webhook_url, payload, api_key, retries=retries, backoff_seconds=backoff_seconds, timeout=timeout)
+        result["sent"] = True
         print("[SUCCESS] Data ingestion completed.")
 
-    if mode == "all" and last_payload_path:
-        write_json(last_payload_path, report)
+    return result

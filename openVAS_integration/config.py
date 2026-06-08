@@ -1,7 +1,15 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _resolve_path(base_dir: Path, raw_path: str) -> str:
+    candidate = Path(raw_path.strip())
+    if not candidate.is_absolute():
+        candidate = base_dir / candidate
+    return str(candidate)
 
 def _env(name: str, default: str | None = None) -> str | None:
     v = os.getenv(name)
@@ -26,6 +34,15 @@ def _env_bool(name: str, default: bool) -> bool:
     if v in {"0", "false", "no", "n", "off"}:
         return False
     return default
+
+
+BASE_DIR = Path(__file__).resolve().parent
+ARTIFACTS_DIR = _resolve_path(BASE_DIR.parent, _env("OPENVAS_ARTIFACTS_DIR", "runtime/openvas/artifacts") or "runtime/openvas/artifacts")
+LAST_TASKS_XML_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_TASKS_XML_PATH", "last_tasks.xml") or "last_tasks.xml")
+LAST_REPORT_XML_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_REPORT_XML_PATH", "last_report.xml") or "last_report.xml")
+LAST_REPORT_JSON_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_REPORT_JSON_PATH", "last_report_built.json") or "last_report_built.json")
+LAST_PAYLOAD_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_PAYLOAD_PATH", "last_payload_sent.json") or "last_payload_sent.json")
+LAST_DELIVERY_META_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_DELIVERY_META_PATH", "last_delivery_meta.json") or "last_delivery_meta.json")
 
 
 OUTPUT_MODE = (_env("OPENVAS_OUTPUT_MODE", _env("OUTPUT_MODE", "console")) or "console").strip().lower()

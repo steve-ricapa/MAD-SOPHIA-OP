@@ -88,6 +88,19 @@ def main():
             all_hosts = zbx.get_hosts()
             all_triggers = zbx.get_all_triggers(limit=cfg.triggers_limit)
 
+            atomic_json_dump(
+                cfg.raw_snapshot_path,
+                {
+                    "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "time_from": time_from,
+                    "time_to": now,
+                    "problems": problems,
+                    "events": events,
+                    "hosts": all_hosts,
+                    "triggers": all_triggers,
+                },
+            )
+
             if len(problems) >= cfg.problems_limit:
                 print(f"[{timestamp}] [WARN] Problems limit reached ({cfg.problems_limit}). Consider increasing PROBLEMS_LIMIT or paginating.")
             if len(all_triggers) >= cfg.triggers_limit:
@@ -114,18 +127,34 @@ def main():
             # 4. Deliver if changes detected
             if report["findings"] or not state.get("processed_findings"):
                 print(f"[{timestamp}] Prepared {len(report['findings'])} findings for delivery.")
-                deliver(
-                    cfg.output_mode,
-                    report,
-                    cfg.webhook_url,
-                    cfg.api_key,
-                    retries=cfg.http_retries,
-                    backoff_seconds=cfg.backoff_seconds,
-                    last_payload_path=cfg.last_payload_path,
-                    timeout=cfg.request_timeout,
-                )
-                
                 atomic_json_dump(cfg.debug_report_path, report)
+                atomic_json_dump(cfg.last_payload_path, report)
+                delivery_result = {"sent": False, "mode": cfg.output_mode, "error": ""}
+                try:
+                    delivery_result = deliver(
+                        cfg.output_mode,
+                        report,
+                        cfg.webhook_url,
+                        cfg.api_key,
+                        retries=cfg.http_retries,
+                        backoff_seconds=cfg.backoff_seconds,
+                        last_payload_path=cfg.last_payload_path,
+                        timeout=cfg.request_timeout,
+                    )
+                except Exception as exc:
+                    delivery_result["error"] = str(exc)
+                    raise
+                finally:
+                    atomic_json_dump(
+                        cfg.delivery_meta_path,
+                        {
+                            "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+                            "scan_id": scan_id,
+                            "mode": cfg.output_mode,
+                            "sent": delivery_result.get("sent", False),
+                            "error": delivery_result.get("error", ""),
+                        },
+                    )
             else:
                 print(f"[{timestamp}] No changes detected. Skipping delivery.")
 

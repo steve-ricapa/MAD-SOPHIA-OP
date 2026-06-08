@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 @dataclass(frozen=True)
 class Config:
     base_dir: Path
+    artifacts_dir: Path
     uptime_kuma_url: str
     metrics_path: str
     output_mode: str
@@ -31,6 +32,7 @@ class Config:
     state_path: Path
     debug_report_path: Path
     last_payload_path: Path
+    delivery_meta_path: Path
     raw_snapshot_path: Path
     kuma_user: Optional[str]
     kuma_password: Optional[str]
@@ -62,6 +64,7 @@ def _resolve_path(base_dir: Path, raw_path: str, fallback_name: str) -> Path:
 def load_config() -> Config:
     load_dotenv()
     base_dir = Path(__file__).resolve().parent
+    root_dir = base_dir.parent
 
     uptime_kuma_url = os.getenv("UPTIME_KUMA_URL", "").strip()
     metrics_path = os.getenv("UPTIME_KUMA_METRICS_PATH", "/metrics").strip()
@@ -88,9 +91,11 @@ def load_config() -> Config:
     queue_enabled = _env_bool("UPTIME_QUEUE_ENABLED", _env_bool("QUEUE_ENABLED", True))
     queue_flush_max = int(os.getenv("UPTIME_QUEUE_FLUSH_MAX") or os.getenv("QUEUE_FLUSH_MAX", "20"))
 
+    artifacts_dir_raw = os.getenv("UPTIME_ARTIFACTS_DIR") or os.getenv("ARTIFACTS_DIR", "runtime/uptimekuma")
     state_raw = os.getenv("STATE_FILE", "state.json")
     debug_report_raw = os.getenv("DEBUG_REPORT_PATH", "debug_report.json")
     last_payload_raw = os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
+    delivery_meta_raw = os.getenv("UPTIME_DELIVERY_META_PATH") or os.getenv("DELIVERY_META_PATH", "last_delivery_meta.json")
     raw_snapshot_raw = os.getenv("UPTIME_RAW_SNAPSHOT_PATH") or os.getenv("RAW_SNAPSHOT_PATH", "raw_monitors_snapshot.json")
     queue_dir_raw = os.getenv("UPTIME_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
 
@@ -100,11 +105,13 @@ def load_config() -> Config:
     kuma_api_key = os.getenv("UPTIME_KUMA_API_KEY")
     kuma_db_raw = os.getenv("UPTIME_KUMA_DB_PATH")
 
-    state_path = _resolve_path(base_dir, state_raw, "state.json")
-    debug_report_path = _resolve_path(base_dir, debug_report_raw, "debug_report.json")
-    last_payload_path = _resolve_path(base_dir, last_payload_raw, "last_payload_sent.json")
-    raw_snapshot_path = _resolve_path(base_dir, raw_snapshot_raw, "raw_monitors_snapshot.json")
-    queue_dir = _resolve_path(base_dir, queue_dir_raw, "queue")
+    artifacts_dir = _resolve_path(root_dir, artifacts_dir_raw, "runtime/uptimekuma")
+    state_path = _resolve_path(artifacts_dir, state_raw, "state.json")
+    debug_report_path = _resolve_path(artifacts_dir, debug_report_raw, "debug_report.json")
+    last_payload_path = _resolve_path(artifacts_dir, last_payload_raw, "last_payload_sent.json")
+    delivery_meta_path = _resolve_path(artifacts_dir, delivery_meta_raw, "last_delivery_meta.json")
+    raw_snapshot_path = _resolve_path(artifacts_dir, raw_snapshot_raw, "raw_monitors_snapshot.json")
+    queue_dir = _resolve_path(artifacts_dir, queue_dir_raw, "queue")
 
     kuma_db_path: Optional[Path] = None
     if kuma_db_raw and kuma_db_raw.strip():
@@ -128,6 +135,7 @@ def load_config() -> Config:
 
     return Config(
         base_dir=base_dir,
+        artifacts_dir=artifacts_dir,
         uptime_kuma_url=uptime_kuma_url,
         metrics_path=metrics_path,
         output_mode=output_mode,
@@ -150,6 +158,7 @@ def load_config() -> Config:
         state_path=state_path,
         debug_report_path=debug_report_path,
         last_payload_path=last_payload_path,
+        delivery_meta_path=delivery_meta_path,
         raw_snapshot_path=raw_snapshot_path,
         kuma_user=kuma_user.strip() if kuma_user else None,
         kuma_password=kuma_password.strip() if kuma_password else None,

@@ -44,6 +44,13 @@ def archive_json(path, data):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
+def resolve_path(base_dir: Path, raw_path: str) -> Path:
+    candidate = Path((raw_path or "").strip())
+    if not candidate.is_absolute():
+        candidate = base_dir / candidate
+    return candidate
+
+
 def collect_missing_required_config(company_id, api_key, ingest_url, indexer_host, indexer_user, indexer_pass, api_host, api_user, api_pass):
     checks = {
         "TXDXAI_COMPANY_ID (>0)": company_id > 0,
@@ -341,9 +348,19 @@ async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, a
                     },
                 )
                 archive_json(
+                    Path(app_cfg["last_raw_path"]),
+                    {
+                        "scan_id": scan_id,
+                        "checkpoint_used": last_ts,
+                        "raw_alerts": raw_alerts,
+                        "unique_alerts": unique_alerts,
+                    },
+                )
+                archive_json(
                     Path(app_cfg["payload_dir"]) / f"payload_{timestamp}_{scan_id}.json",
                     report,
                 )
+                archive_json(Path(app_cfg["last_payload_path"]), report)
 
                 dry_run = parse_bool(app_cfg["dry_run"], default=False)
 
@@ -360,6 +377,18 @@ async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, a
                     success = True
                 else:
                     success = await sender.send_report(report)
+
+                archive_json(
+                    Path(app_cfg["last_delivery_meta_path"]),
+                    {
+                        "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "scan_id": scan_id,
+                        "delivery_success": success,
+                        "status_code": sender.last_status_code,
+                        "failure_kind": sender.last_failure_kind,
+                        "error_body": sender.last_error_body,
+                    },
+                )
 
                 if success:
                     new_last_ts = raw_alerts[-1]["timestamp"]
@@ -400,7 +429,19 @@ async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, a
                         if parse_bool(app_cfg["dry_run"], default=False):
                             logger.info("Heartbeat skipped (DRY_RUN)")
                         else:
-                            await sender.send_report(heartbeat_report)
+                            archive_json(Path(app_cfg["last_payload_path"]), heartbeat_report)
+                            heartbeat_success = await sender.send_report(heartbeat_report)
+                            archive_json(
+                                Path(app_cfg["last_delivery_meta_path"]),
+                                {
+                                    "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+                                    "scan_id": heartbeat_report.get("scan_id"),
+                                    "delivery_success": heartbeat_success,
+                                    "status_code": sender.last_status_code,
+                                    "failure_kind": sender.last_failure_kind,
+                                    "error_body": sender.last_error_body,
+                                },
+                            )
 
                     empty_cycles = 0
                 else:
@@ -492,11 +533,15 @@ async def main():
     health_port = int(os.getenv("HEALTH_CHECK_PORT", 8000))
     checkpoint_file = os.getenv("CHECKPOINT_FILE", "state/agent_state.db")
 
-    artifacts_dir = Path(os.getenv("ARTIFACTS_DIR", "artifacts"))
+    runtime_dir = Path(__file__).resolve().parent.parent / "runtime" / "wazuh"
+    artifacts_dir = resolve_path(runtime_dir, os.getenv("ARTIFACTS_DIR", "artifacts"))
     raw_dir = artifacts_dir / "raw_batches"
     payload_dir = artifacts_dir / "payloads"
     failed_dir = artifacts_dir / "failed_payloads"
     logs_dir = artifacts_dir / "logs"
+    last_raw_path = artifacts_dir / "last_raw_snapshot.json"
+    last_payload_path = artifacts_dir / "last_payload_sent.json"
+    last_delivery_meta_path = artifacts_dir / "last_delivery_meta.json"
     for p in (raw_dir, payload_dir, failed_dir, logs_dir):
         p.mkdir(parents=True, exist_ok=True)
 
@@ -517,6 +562,9 @@ async def main():
         "raw_dir": str(raw_dir),
         "payload_dir": str(payload_dir),
         "failed_dir": str(failed_dir),
+        "last_raw_path": str(last_raw_path),
+        "last_payload_path": str(last_payload_path),
+        "last_delivery_meta_path": str(last_delivery_meta_path),
     }
 
     logger.info("Starting WazuhC Agent...")
