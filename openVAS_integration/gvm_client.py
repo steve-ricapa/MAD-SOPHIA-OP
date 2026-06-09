@@ -230,13 +230,39 @@ class GVMClient:
         if self.transport == "plain":
             report_id_escaped = escape(report_id or "")
             rows = min(1000, max(250, _env_int("TOP_N", 50) * 5))
-            request = (
-                f"<get_report report_id=\"{report_id_escaped}\" "
-                f"details=\"1\" "
-                f"filter=\"rows={rows} first=1 sort-reverse=severity levels=chmlgio\"/>"
+            attempts = [
+                (
+                    f"<get_reports report_id=\"{report_id_escaped}\" "
+                    f"details=\"1\" "
+                    f"filter=\"rows={rows} first=1 sort-reverse=severity levels=chmlgio\"/>",
+                    "get_reports_response",
+                ),
+                (
+                    f"<get_reports report_id=\"{report_id_escaped}\" "
+                    f"details=\"1\"/>",
+                    "get_reports_response",
+                ),
+                (
+                    f"<get_report report_id=\"{report_id_escaped}\" "
+                    f"details=\"1\"/>",
+                    "get_report_response",
+                ),
+            ]
+            response = ""
+            status = None
+            status_text = None
+            for idx, (request, response_tag) in enumerate(attempts, start=1):
+                response = self._send_plain_gmp(request, response_tag)
+                status, status_text = _gmp_status(response)
+                if status == "200":
+                    return response
+                if self.debug:
+                    print(f"[GVMClient] get_report attempt={idx} status={status} {status_text or ''}")
+            raise RuntimeError(
+                "GMP get_report failed in plain mode: "
+                f"status={status} status_text={status_text or ''} "
+                f"response={response[:300]}"
             )
-            response = self._send_plain_gmp(request, "get_report_response")
-            status, status_text = _gmp_status(response)
             if status != "200":
                 if self.debug:
                     print(f"[GVMClient] get_report status={status} {status_text or ''} — retrying without filter")

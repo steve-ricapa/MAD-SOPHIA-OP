@@ -28,6 +28,8 @@ class _FakePlainSocket:
             self._recv_buffer = b'<authenticate_response status="200" status_text="OK"/>'
         elif "<get_tasks/>" in text:
             self._recv_buffer = b'<get_tasks_response status="200" status_text="OK"><task id="t-1"/></get_tasks_response>'
+        elif "<get_reports" in text:
+            self._recv_buffer = b'<get_reports_response status="200" status_text="OK"><report id="r-1"/></get_reports_response>'
         elif "<get_report" in text:
             self._recv_buffer = b'<get_report_response status="200" status_text="OK"><report id="r-1"/></get_report_response>'
         else:
@@ -60,8 +62,45 @@ def test_plain_transport_happy_path(monkeypatch):
         report_xml = client.get_report("r-1")
 
     assert "get_tasks_response" in tasks_xml
-    assert "get_report_response" in report_xml
+    assert "get_reports_response" in report_xml
     assert any("<authenticate>" in payload for payload in fake_socket.sent_payloads)
+    assert any("<get_reports " in payload for payload in fake_socket.sent_payloads)
+
+
+class _FakePlainSocketLegacyFallback(_FakePlainSocket):
+    def sendall(self, payload: bytes):
+        text = payload.decode("utf-8")
+        self.sent_payloads.append(text)
+        if "<get_version/>" in text:
+            self._recv_buffer = b'<get_version_response status="200" status_text="OK"><version>22.7</version></get_version_response>'
+        elif "<authenticate>" in text:
+            self._recv_buffer = b'<authenticate_response status="200" status_text="OK"/>'
+        elif "<get_tasks/>" in text:
+            self._recv_buffer = b'<get_tasks_response status="200" status_text="OK"><task id="t-1"/></get_tasks_response>'
+        elif "<get_reports" in text:
+            self._recv_buffer = b'<gmp_response status="400" status_text="Bogus command name"/>'
+        elif "<get_report" in text:
+            self._recv_buffer = b'<get_report_response status="200" status_text="OK"><report id="r-1"/></get_report_response>'
+        else:
+            self._recv_buffer = b'<error_response status="400" status_text="BAD"/>'
+
+
+def test_plain_transport_falls_back_to_legacy_get_report(monkeypatch):
+    fake_socket = _FakePlainSocketLegacyFallback()
+    monkeypatch.setenv("GVM_ALLOW_PLAIN_TCP", "true")
+
+    def _fake_create_connection(addr, timeout=0):
+        _ = addr, timeout
+        return fake_socket
+
+    monkeypatch.setattr("socket.create_connection", _fake_create_connection)
+
+    with GVMClient("10.0.0.1", 41000, "admin", "secret", transport="plain", timeout=10) as client:
+        report_xml = client.get_report("r-1")
+
+    assert "get_report_response" in report_xml
+    assert any("<get_reports " in payload for payload in fake_socket.sent_payloads)
+    assert any("<get_report " in payload for payload in fake_socket.sent_payloads)
 
 
 def test_plain_transport_requires_explicit_allow_flag(monkeypatch):
