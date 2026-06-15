@@ -62,9 +62,6 @@ class ZabbixClient:
         if method not in ("apiinfo.version", "user.login") and not self.auth_token:
             self.login()
 
-        if self.auth_token and method != "apiinfo.version":
-            payload["auth"] = self.auth_token
-
         headers = {
             "Content-Type": "application/json-rpc",
             "Accept": "application/json",
@@ -107,7 +104,6 @@ class ZabbixClient:
                         self.auth_token = None if not self.api_token else self.api_token
                         self.login()
                         headers["Authorization"] = f"Bearer {self.auth_token}"
-                        payload["auth"] = self.auth_token
                         continue
                     last_error = f"Zabbix JSON-RPC error: {json.dumps(data['error'], ensure_ascii=False)}"
                     if attempt == self.retries:
