@@ -179,7 +179,7 @@ def main():
 
             scan_id = str(uuid.uuid4())
             idempotency_key = build_idempotency_key(
-                cfg.company_id, "zabbix", "vuln_scan_report", current_signature
+                cfg.company_id, "zabbix", "vuln_scan_report", f"{current_signature}-{scan_id}"
             )
             report, _ = summarize(
                 scan_id=scan_id,
