@@ -1,9 +1,13 @@
-import asyncio
 from opensearchpy import AsyncOpenSearch
 from loguru import logger
 
 class IndexerClient:
     def __init__(self, host, user, password, verify_certs=False):
+        self.host = host
+        self.verify_certs = verify_certs
+        self.last_error = None
+        self.last_error_kind = None
+        self.last_operation = None
         self.client = AsyncOpenSearch(
             hosts=[host],
             http_auth=(user, password),
@@ -11,6 +15,20 @@ class IndexerClient:
             verify_certs=verify_certs,
             ssl_show_warn=verify_certs
         )
+
+    def _reset_last_result(self, operation):
+        self.last_operation = operation
+        self.last_error = None
+        self.last_error_kind = None
+
+    @staticmethod
+    def _classify_exception(exc):
+        message = str(exc).lower()
+        if "certificate verify failed" in message or "ssl" in message:
+            return "tls"
+        if "timed out" in message:
+            return "timeout"
+        return "network"
 
     async def get_new_alerts(self, last_timestamp, limit=500):
         """
@@ -31,6 +49,7 @@ class IndexerClient:
         }
 
         try:
+            self._reset_last_result("get_new_alerts")
             response = await self.client.search(
                 index="wazuh-alerts-*",
                 body=query
@@ -43,15 +62,32 @@ class IndexerClient:
                 alerts.append(source)
             return alerts
         except Exception as e:
-            logger.error(f"Error querying Indexer: {e}")
+            self.last_error_kind = self._classify_exception(e)
+            self.last_error = f"{type(e).__name__}: {e}"
+            logger.error(
+                "Error querying Indexer | host={} | verify_certs={} | kind={} | error={}",
+                self.host,
+                self.verify_certs,
+                self.last_error_kind,
+                self.last_error,
+            )
             return []
 
     async def ping(self):
         """Checks basic connectivity/authentication against Wazuh Indexer."""
         try:
+            self._reset_last_result("ping")
             return bool(await self.client.ping())
         except Exception as e:
-            logger.error(f"Error pinging Indexer: {e}")
+            self.last_error_kind = self._classify_exception(e)
+            self.last_error = f"{type(e).__name__}: {e}"
+            logger.error(
+                "Error pinging Indexer | host={} | verify_certs={} | kind={} | error={}",
+                self.host,
+                self.verify_certs,
+                self.last_error_kind,
+                self.last_error,
+            )
             return False
 
     async def get_alerts_page(self, start_timestamp, end_timestamp=None, size=1000, search_after=None):
@@ -77,6 +113,7 @@ class IndexerClient:
             query["search_after"] = search_after
 
         try:
+            self._reset_last_result("get_alerts_page")
             response = await self.client.search(index="wazuh-alerts-*", body=query)
             hits = response['hits']['hits']
             alerts = []
@@ -90,7 +127,15 @@ class IndexerClient:
 
             return alerts, next_search_after
         except Exception as e:
-            logger.error(f"Error paginating Indexer alerts: {e}")
+            self.last_error_kind = self._classify_exception(e)
+            self.last_error = f"{type(e).__name__}: {e}"
+            logger.error(
+                "Error paginating Indexer alerts | host={} | verify_certs={} | kind={} | error={}",
+                self.host,
+                self.verify_certs,
+                self.last_error_kind,
+                self.last_error,
+            )
             return [], None
 
     async def get_alerts_range(self, start_timestamp, end_timestamp=None, batch_size=1000, max_alerts=None):

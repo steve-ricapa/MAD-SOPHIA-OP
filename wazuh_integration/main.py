@@ -61,9 +61,6 @@ def collect_missing_required_config(company_id, api_key, ingest_url, indexer_hos
         "WAZUH_INDEXER_HOST": bool(indexer_host),
         "WAZUH_INDEXER_USER": bool(indexer_user),
         "WAZUH_INDEXER_PASSWORD": bool(indexer_pass),
-        "WAZUH_API_HOST": bool(api_host),
-        "WAZUH_API_USER": bool(api_user),
-        "WAZUH_API_PASSWORD": bool(api_pass),
     }
     return [name for name, is_ok in checks.items() if not is_ok]
 
@@ -113,6 +110,9 @@ def log_precheck_results(results):
             result["required"],
             result["details"],
         )
+        evidence = result.get("evidence") or {}
+        if evidence and not result["passed"]:
+            logger.info("   evidence={}", json.dumps(evidence, ensure_ascii=False))
 
     passed_count = sum(1 for r in results if r["passed"])
     total = len(results)
@@ -143,19 +143,32 @@ async def run_startup_integration_tests(indexer, api, sender, api_key, missing_r
         results.append(
             {
                 "name": "Wazuh API Authentication",
-                "required": True,
+                "required": False,
                 "passed": False,
-                "details": "missing Wazuh API configuration",
+                "details": "missing Wazuh API configuration; agent inventory polling will be skipped",
+                "evidence": {},
             }
         )
     else:
         auth_ok = await api._authenticate()
+        auth_details = "token acquired successfully"
+        if not auth_ok:
+            error_kind = api.last_error_kind or "unknown"
+            error_text = api.last_error or api.last_response_excerpt or "no extra details"
+            auth_details = f"authentication failed | kind={error_kind} | detail={error_text}"
         results.append(
             {
                 "name": "Wazuh API Authentication",
-                "required": True,
+                "required": False,
                 "passed": auth_ok,
-                "details": "token acquired successfully" if auth_ok else "authentication failed (401 or connectivity issue)",
+                "details": auth_details,
+                "evidence": {
+                    "host": api.host,
+                    "verify_certs": api.verify_certs,
+                    "status_code": api.last_status,
+                    "failure_kind": api.last_error_kind,
+                    "response_excerpt": api.last_response_excerpt,
+                },
             }
         )
 
@@ -175,13 +188,20 @@ async def run_startup_integration_tests(indexer, api, sender, api_key, missing_r
             sample_alerts = await indexer.get_new_alerts(sample_since, limit=1)
             details = f"ping ok, sample_alerts={len(sample_alerts)}"
         else:
-            details = "ping failed"
+            details = f"ping failed | kind={indexer.last_error_kind or 'unknown'} | detail={indexer.last_error or 'no extra details'}"
         results.append(
             {
                 "name": "Wazuh Indexer Connectivity",
                 "required": True,
                 "passed": ping_ok,
                 "details": details,
+                "evidence": {
+                    "host": indexer.host,
+                    "verify_certs": indexer.verify_certs,
+                    "operation": indexer.last_operation,
+                    "failure_kind": indexer.last_error_kind,
+                    "error": indexer.last_error,
+                },
             }
         )
 
@@ -211,6 +231,12 @@ async def run_startup_integration_tests(indexer, api, sender, api_key, missing_r
                 "required": True,
                 "passed": backend_ok,
                 "details": backend_details,
+                "evidence": {
+                    "endpoint": sender.ingest_url,
+                    "status_code": sender.last_status_code,
+                    "failure_kind": sender.last_failure_kind,
+                    "error": sender.last_error_body,
+                },
             }
         )
 
@@ -597,6 +623,7 @@ async def main():
         api = WazuhApiClient(api_host, api_user, api_pass, verify_certs=api_verify_tls)
 
     sender = Sender(ingest_url) if ingest_url else None
+    agent_polling_enabled = api is not None
 
     missing_required = collect_missing_required_config(
         company_id=company_id,
@@ -617,7 +644,20 @@ async def main():
 
     if startup_action in {"run_and_continue", "run_and_exit"}:
         precheck_results = await run_startup_integration_tests(indexer, api, sender, api_key, missing_required)
+        archive_json(
+            logs_dir / "startup_precheck.json",
+            {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "results": precheck_results,
+            },
+        )
         _, _, required_failed = log_precheck_results(precheck_results)
+        api_result = next((r for r in precheck_results if r["name"] == "Wazuh API Authentication"), None)
+        if api_result and not api_result["passed"]:
+            agent_polling_enabled = False
+            logger.warning(
+                "Wazuh API precheck failed; alert collection will continue with Indexer only and agent inventory polling will be disabled for this run."
+            )
 
         if startup_action == "run_and_exit":
             logger.info("Startup menu requested exit after integration tests.")
@@ -641,11 +681,14 @@ async def main():
             await indexer.close()
         return
 
-    if indexer is None or api is None or sender is None:
+    if indexer is None or sender is None:
         logger.error("Startup aborted: required clients could not be initialized.")
         if indexer is not None:
             await indexer.close()
         return
+
+    if not agent_polling_enabled:
+        logger.warning("Wazuh API polling disabled for this run; only Indexer alerts will be collected.")
 
     aggregator = Aggregator(tenant_id=str(company_id))
     state = StateStore(db_path=checkpoint_file)
@@ -671,15 +714,18 @@ async def main():
         if args.once:
             await site.start()
             await poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg, single_run=True)
-            await poll_agents(api, aggregator, state, single_run=True)
+            if agent_polling_enabled and api is not None:
+                await poll_agents(api, aggregator, state, single_run=True)
             logger.info("Single-run mode completed. Exiting.")
         else:
-            await asyncio.gather(
+            tasks = [
                 site.start(),
                 poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg),
-                poll_agents(api, aggregator, state),
                 retry_failed_payloads(sender, app_cfg),
-            )
+            ]
+            if agent_polling_enabled and api is not None:
+                tasks.append(poll_agents(api, aggregator, state))
+            await asyncio.gather(*tasks)
     finally:
         if indexer is not None:
             await indexer.close()
