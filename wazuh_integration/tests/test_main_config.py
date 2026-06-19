@@ -73,6 +73,24 @@ class TestMainConfig(unittest.TestCase):
         self.assertFalse(api_result["passed"])
         self.assertTrue(indexer_result["passed"])
 
+    def test_run_startup_integration_tests_supports_api_disabled(self):
+        results = asyncio.run(
+            run_startup_integration_tests(
+                indexer=_FakeIndexer(),
+                api=None,
+                sender=_FakeSender(),
+                api_key="k",
+                missing_required=[],
+                api_enabled=False,
+            )
+        )
+
+        api_result = next(r for r in results if r["name"] == "Wazuh API Authentication")
+
+        self.assertFalse(api_result["required"])
+        self.assertTrue(api_result["passed"])
+        self.assertIn("WAZUH_API_ENABLED=false", api_result["details"])
+
 
 if __name__ == "__main__":
     unittest.main()

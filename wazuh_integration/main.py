@@ -126,7 +126,7 @@ def log_precheck_results(results):
     return passed_count, total, required_failed
 
 
-async def run_startup_integration_tests(indexer, api, sender, api_key, missing_required):
+async def run_startup_integration_tests(indexer, api, sender, api_key, missing_required, api_enabled=True):
     results = []
 
     env_ok = len(missing_required) == 0
@@ -139,7 +139,17 @@ async def run_startup_integration_tests(indexer, api, sender, api_key, missing_r
         }
     )
 
-    if api is None:
+    if not api_enabled:
+        results.append(
+            {
+                "name": "Wazuh API Authentication",
+                "required": False,
+                "passed": True,
+                "details": "disabled by WAZUH_API_ENABLED=false; agent inventory polling will be skipped",
+                "evidence": {"api_enabled": False},
+            }
+        )
+    elif api is None:
         results.append(
             {
                 "name": "Wazuh API Authentication",
@@ -561,6 +571,7 @@ async def main():
     api_user = os.getenv("WAZUH_API_USER")
     api_pass = os.getenv("WAZUH_API_PASSWORD")
     api_verify_tls = parse_bool(os.getenv("WAZUH_API_VERIFY_TLS"), default=False)
+    api_enabled = parse_bool(os.getenv("WAZUH_API_ENABLED"), default=True)
     ingest_url = os.getenv("TXDXAI_INGEST_URL")
     health_port = int(os.getenv("HEALTH_CHECK_PORT", 8000))
     checkpoint_file = os.getenv("CHECKPOINT_FILE", "state/agent_state.db")
@@ -619,11 +630,11 @@ async def main():
         indexer = IndexerClient(indexer_host, indexer_user, indexer_pass, verify_certs=indexer_verify_tls)
 
     api = None
-    if api_host and api_user and api_pass:
+    if api_enabled and api_host and api_user and api_pass:
         api = WazuhApiClient(api_host, api_user, api_pass, verify_certs=api_verify_tls)
 
     sender = Sender(ingest_url) if ingest_url else None
-    agent_polling_enabled = api is not None
+    agent_polling_enabled = api_enabled and api is not None
 
     missing_required = collect_missing_required_config(
         company_id=company_id,
@@ -643,7 +654,14 @@ async def main():
     )
 
     if startup_action in {"run_and_continue", "run_and_exit"}:
-        precheck_results = await run_startup_integration_tests(indexer, api, sender, api_key, missing_required)
+        precheck_results = await run_startup_integration_tests(
+            indexer,
+            api,
+            sender,
+            api_key,
+            missing_required,
+            api_enabled=api_enabled,
+        )
         archive_json(
             logs_dir / "startup_precheck.json",
             {
@@ -653,7 +671,7 @@ async def main():
         )
         _, _, required_failed = log_precheck_results(precheck_results)
         api_result = next((r for r in precheck_results if r["name"] == "Wazuh API Authentication"), None)
-        if api_result and not api_result["passed"]:
+        if api_enabled and api_result and not api_result["passed"]:
             agent_polling_enabled = False
             logger.warning(
                 "Wazuh API precheck failed; alert collection will continue with Indexer only and agent inventory polling will be disabled for this run."
@@ -688,7 +706,10 @@ async def main():
         return
 
     if not agent_polling_enabled:
-        logger.warning("Wazuh API polling disabled for this run; only Indexer alerts will be collected.")
+        if api_enabled:
+            logger.warning("Wazuh API polling disabled for this run; only Indexer alerts will be collected.")
+        else:
+            logger.info("Wazuh API polling disabled by configuration; only Indexer alerts will be collected.")
 
     aggregator = Aggregator(tenant_id=str(company_id))
     state = StateStore(db_path=checkpoint_file)
