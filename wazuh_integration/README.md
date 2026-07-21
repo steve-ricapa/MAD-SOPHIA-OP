@@ -5,6 +5,7 @@ Conector incremental para extraer alertas desde Wazuh, normalizarlas y enviarlas
 ## Que hace
 
 - Consulta alertas del indexer en bucle (`POLL_INTERVAL_ALERTS`).
+- Puede seguir levantando la recoleccion de alertas solo con el indexer (`9200`) aunque la API de Wazuh (`55000`) falle.
 - Filtra por severidad minima (`MIN_RULE_LEVEL`).
 - Evita reenvio de duplicados usando:
   - checkpoint temporal (`alerts_timestamp`), y
@@ -13,7 +14,7 @@ Conector incremental para extraer alertas desde Wazuh, normalizarlas y enviarlas
 - Reintenta automaticamente payloads fallidos cada `RETRY_FAILED_INTERVAL_SECONDS`.
 - Al iniciar, muestra un menu de prechecks de integracion y reporta cuantos tests pasaron.
 - Si detecta fallas no reintentables (ej. `api_key` faltante), aplica cooldown para no inflar la cola.
-- Envía payloads al backend (`TXDXAI_INGEST_URL`).
+- Solicita `upload_url` al backend (`TXDXAI_INGEST_URL`) y sube snapshots a S3.
 - Guarda evidencia local de cada ciclo para auditoria y analisis.
 
 ## Estructura
@@ -42,7 +43,7 @@ wazuh_integration/
 
 - Wazuh API: `WAZUH_API_HOST`, `WAZUH_API_USER`, `WAZUH_API_PASSWORD`
 - Wazuh Indexer: `WAZUH_INDEXER_HOST`, `WAZUH_INDEXER_USER`, `WAZUH_INDEXER_PASSWORD`
-- Backend: `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_WAZUH` (fallback: `TXDXAI_API_KEY`)
+- Backend: `TXDXAI_INGEST_URL`, `TXDXAI_TENANT_ID`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_WAZUH` (fallback: `TXDXAI_API_KEY`)
 - Bucle: `POLL_INTERVAL_ALERTS=30`, `POLL_INTERVAL_AGENTS=60`
 - Reintentos: `RETRY_FAILED_INTERVAL_SECONDS=30`
 - Backoff no reintentable: `NON_RETRYABLE_BACKOFF_SECONDS=300`
@@ -51,6 +52,7 @@ wazuh_integration/
 - Evidencias: `ARTIFACTS_DIR=artifacts`
 - Heartbeat opcional: `SEND_HEARTBEAT=false`
 - Seguridad TLS: `WAZUH_API_VERIFY_TLS`, `WAZUH_INDEXER_VERIFY_TLS`
+- API opcional: `WAZUH_API_ENABLED=false` para operar solo con el indexer (`9200`)
 - Menu de arranque: `STARTUP_MENU_ENABLED`, `STARTUP_MENU_DEFAULT_OPTION`, `STARTUP_REQUIRE_ALL_TESTS`
 
 ## Perfiles por cliente
@@ -63,6 +65,8 @@ Puedes tomar valores base desde:
 
 ## Ejecucion
 
+Para AWS, `TXDXAI_INGEST_URL` debe apuntar a `/scans/upload-url`. El agente hace `POST` para obtener la URL prefirmada y luego `PUT` del snapshot completo a S3.
+
 ```bash
 py -m pip install -r requirements.txt
 py main.py
@@ -71,6 +75,7 @@ py main.py
 ## Archivos de salida
 
 - Logs del agente: `artifacts/logs/agent_console.json`
+- Resultado del precheck de arranque: `artifacts/logs/startup_precheck.json`
 - Lotes crudos recibidos: `artifacts/raw_batches/raw_*.json`
 - Payloads enviados: `artifacts/payloads/payload_*.json`
 - Payloads fallidos: `artifacts/failed_payloads/failed_*.json`

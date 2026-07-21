@@ -1,13 +1,13 @@
 # Uptime Kuma Real-time Agent
 
-Agente Python para consumir telemetria de Uptime Kuma desde `/metrics`, convertirla al formato unificado de TxDxAI y enviarla al backend en tiempo real.
+Agente Python para consumir telemetria de Uptime Kuma desde `/metrics`, convertirla al formato unificado de TxDxAI y enviarla al backend AWS en tiempo real.
 
 ## Flujo
 
 1. Lee metricas Prometheus de Uptime Kuma (`monitor_status`, `monitor_response_time`, `monitor_uptime_ratio`).
 2. Normaliza el estado de monitores a severidades del dashboard.
 3. Mantiene estado local en `state.json` para detectar cambios y evitar ruido.
-4. Envia reporte al backend (`OUTPUT_MODE=webhook|all`) o imprime en consola (`stdout`).
+4. Solicita una URL de subida al backend AWS y sube el snapshot a S3 (`OUTPUT_MODE=webhook|all`) o imprime en consola (`stdout`).
 5. Incluye `idempotency_key` por snapshot y cola local en disco para reintentos.
 
 ## Variables de entorno
@@ -18,7 +18,8 @@ Agente Python para consumir telemetria de Uptime Kuma desde `/metrics`, converti
 - `UPTIME_KUMA_USERNAME`, `UPTIME_KUMA_PASSWORD` (auth basica)
 - `UPTIME_KUMA_API_KEY_ID`, `UPTIME_KUMA_API_KEY` (si Uptime Kuma tiene API Keys habilitadas)
 - `OUTPUT_MODE` = `stdout | webhook | all`
-- `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_UPTIMEKUMA` (fallback: `TXDXAI_API_KEY`)
+- `TXDXAI_INGEST_URL`, `TXDXAI_TENANT_ID`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_UPTIMEKUMA` (fallback: `TXDXAI_API_KEY`)
+- `TXDXAI_INGEST_URL` debe apuntar a `/scans/upload-url`. Si `TXDXAI_TENANT_ID` no existe, se usa `TXDXAI_COMPANY_ID` como fallback.
 - `POLL_INTERVAL_SECONDS` (default: `15`)
 - `FORCE_SEND_EVERY_CYCLES` (default: `6`)
 - `INCLUDE_ALL_MONITORS` (default: `false`) para incluir todos los monitores en cada reporte.

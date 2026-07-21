@@ -227,6 +227,7 @@ def execute_run(args, log, general_cfg, backend_cfg, state_manager) -> None:
 
     backend = BackendClient(
         ingest_url=backend_cfg.url,
+        tenant_id=backend_cfg.tenant_id,
         api_key=backend_cfg.api_key,
         verify_ssl=backend_cfg.verify,
     )

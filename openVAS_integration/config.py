@@ -57,6 +57,7 @@ META_MAX_KB  = _env_int("META_MAX_KB", 256)
 
 TXDXAI_INGEST_URL = _env("TXDXAI_INGEST_URL", "console://stdout") or "console://stdout"
 TXDXAI_COMPANY_ID = _env_int("TXDXAI_COMPANY_ID", 0)
+TXDXAI_TENANT_ID = _env_int("TXDXAI_TENANT_ID", TXDXAI_COMPANY_ID)
 TXDXAI_API_KEY    = _env("TXDXAI_API_KEY_OPENVAS", _env("TXDXAI_API_KEY", _env("API_KEY", ""))) or ""
 
 GVM_HOST = _env("GVM_HOST", "") or ""
@@ -133,5 +134,5 @@ def validate_config() -> None:
         if not GVM_PASSWORD:
             raise ValueError("COLLECTOR=gmp requiere GVM_PASSWORD no vacío")
 
-    if OUTPUT_MODE == "http" and TXDXAI_COMPANY_ID <= 0:
-        raise ValueError("OUTPUT_MODE=http requiere TXDXAI_COMPANY_ID > 0")
+    if OUTPUT_MODE == "http" and TXDXAI_TENANT_ID <= 0:
+        raise ValueError("OUTPUT_MODE=http requiere TXDXAI_TENANT_ID o TXDXAI_COMPANY_ID > 0")

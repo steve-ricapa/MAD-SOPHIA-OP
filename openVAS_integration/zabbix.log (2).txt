@@ -1,0 +1,85 @@
+PRECHECK SUMMARY: precheck PASS
+{
+  "phases": [
+    {
+      "phase": "env",
+      "status": "PASS",
+      "duration_ms": 0,
+      "normalized_error": null,
+      "raw_error_excerpt": null,
+      "evidence": {
+        "required_keys": [
+          "TXDXAI_API_KEY_ZABBIX",
+          "TXDXAI_INGEST_URL",
+          "TXDXAI_COMPANY_ID",
+          "ZABBIX_API_URL",
+          "ZABBIX_USER",
+          "ZABBIX_PASS"
+        ]
+      }
+    },
+    {
+      "phase": "dns",
+      "status": "PASS",
+      "duration_ms": 0,
+      "normalized_error": null,
+      "raw_error_excerpt": null,
+      "evidence": {
+        "host": "10.208.232.46",
+        "port": 443,
+        "resolved_ips": [
+          "10.208.232.46"
+        ]
+      }
+    },
+    {
+      "phase": "tcp",
+      "status": "PASS",
+      "duration_ms": 1,
+      "normalized_error": null,
+      "raw_error_excerpt": null,
+      "evidence": {
+        "host": "10.208.232.46",
+        "port": 443
+      }
+    },
+    {
+      "phase": "tls",
+      "status": "PASS",
+      "duration_ms": 16,
+      "normalized_error": null,
+      "raw_error_excerpt": null,
+      "evidence": {
+        "host": "10.208.232.46",
+        "port": 443,
+        "verify_ssl": false,
+        "cert_validation": "skipped_by_zabbix_verify_ssl_false"
+      }
+    },
+    {
+      "phase": "auth",
+      "status": "PASS",
+      "duration_ms": 304,
+      "normalized_error": null,
+      "raw_error_excerpt": "{\"jsonrpc\":\"2.0\",\"result\":\"ba0675ac54a512d5b9f672ff5ff96e88\",\"id\":2}",
+      "evidence": {
+        "endpoint": "https://10.208.232.46/api_jsonrpc.php",
+        "http_status": 200
+      }
+    },
+    {
+      "phase": "api",
+      "status": "PASS",
+      "duration_ms": 467,
+      "normalized_error": null,
+      "raw_error_excerpt": "{\"jsonrpc\":\"2.0\",\"result\":\"7.4.9\",\"id\":1}",
+      "evidence": {
+        "endpoint": "https://10.208.232.46/api_jsonrpc.php",
+        "http_status": 200
+      }
+    }
+  ]
+}
+
+
+TIMEOUT after 180.0s

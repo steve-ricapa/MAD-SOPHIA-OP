@@ -84,6 +84,7 @@ def _backoff_with_jitter(base_seconds: int, attempt: int, max_wait: int = 60) ->
 def send_webhook(
     webhook_url: str,
     payload: Dict[str, Any],
+    tenant_id: Optional[int] = None,
     api_key: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     retries: int = 3,
@@ -91,12 +92,21 @@ def send_webhook(
     timeout: int = 30,
     verify_ssl: bool = True,
 ) -> None:
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["x-api-key"] = api_key
-        headers["Authorization"] = f"Bearer {api_key}"
+    resolved_tenant_id = tenant_id or payload.get("tenant_id") or payload.get("tenantId") or payload.get("company_id")
+    scanner_type = str(payload.get("scanner_type") or "nessus").strip().lower()
+    if not resolved_tenant_id:
+        raise PermanentDeliveryError("tenant_id is required to request snapshot upload URL")
+    if not api_key:
+        raise PermanentDeliveryError("api_key is required to request snapshot upload URL")
+
+    request_headers = {"Content-Type": "application/json"}
+    upload_request = {
+        "tenant_id": int(resolved_tenant_id),
+        "api_key": api_key,
+        "scanner_type": scanner_type,
+    }
     if idempotency_key:
-        headers["Idempotency-Key"] = idempotency_key
+        upload_request["idempotency_key"] = idempotency_key
 
     last_error: Optional[Exception] = None
     max_attempts = max(retries, 1)
@@ -105,14 +115,51 @@ def send_webhook(
         try:
             response = requests.post(
                 webhook_url,
-                json=payload,
-                headers=headers,
+                json=upload_request,
+                headers=request_headers,
                 timeout=timeout,
                 verify=verify_ssl,
             )
             _save_payload_debug(payload, response.status_code, response.text or "")
 
-            if 200 <= response.status_code < 300 or response.status_code == 409:
+            if 200 <= response.status_code < 300:
+                try:
+                    upload_response = response.json()
+                except ValueError as exc:
+                    raise PermanentDeliveryError("Upload URL response is not valid JSON") from exc
+
+                upload_url = upload_response.get("upload_url") or upload_response.get("uploadUrl")
+                if not upload_url:
+                    raise PermanentDeliveryError("Upload URL response does not include upload_url")
+
+                put_response = requests.put(
+                    upload_url,
+                    data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    timeout=timeout,
+                    verify=verify_ssl,
+                )
+                if 200 <= put_response.status_code < 300:
+                    return
+                put_snippet = (put_response.text or "")[:300]
+                if put_response.status_code in RETRYABLE_STATUS_CODES:
+                    last_error = TransientDeliveryError(
+                        f"S3 upload HTTP {put_response.status_code} retriable response: {put_snippet}"
+                    )
+                    if attempt < max_attempts:
+                        wait_for = _backoff_with_jitter(backoff_seconds, attempt)
+                        print(
+                            f"[WARN] S3 upload attempt {attempt}/{max_attempts} retriable "
+                            f"HTTP {put_response.status_code}. retry in {wait_for:.1f}s"
+                        )
+                        time.sleep(wait_for)
+                        continue
+                    raise last_error
+                raise PermanentDeliveryError(
+                    f"S3 upload HTTP {put_response.status_code} non-retriable response: {put_snippet}"
+                )
+
+            if response.status_code == 409:
                 return
 
             body_snippet = (response.text or "")[:300]
@@ -176,6 +223,7 @@ def flush_queue(
     queue_dir: str | Path,
     max_items: int,
     webhook_url: str,
+    tenant_id: Optional[int],
     api_key: Optional[str],
     retries: int,
     backoff_seconds: int,
@@ -205,6 +253,7 @@ def flush_queue(
             send_webhook(
                 webhook_url=webhook_url,
                 payload=payload,
+                tenant_id=tenant_id,
                 api_key=api_key,
                 idempotency_key=idempotency_key,
                 retries=retries,
@@ -235,6 +284,7 @@ def deliver(
     mode: str,
     report: Dict[str, Any],
     webhook_url: Optional[str],
+    tenant_id: Optional[int] = None,
     api_key: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     retries: int = 3,
@@ -261,6 +311,7 @@ def deliver(
                 queue_dir=queue_dir,
                 max_items=queue_flush_max,
                 webhook_url=webhook_url,
+                tenant_id=tenant_id,
                 api_key=api_key,
                 retries=retries,
                 backoff_seconds=backoff_seconds,
@@ -275,6 +326,7 @@ def deliver(
             send_webhook(
                 webhook_url=webhook_url,
                 payload=report,
+                tenant_id=tenant_id,
                 api_key=api_key,
                 idempotency_key=idempotency_key,
                 retries=retries,

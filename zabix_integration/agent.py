@@ -206,6 +206,7 @@ def main():
                 mode=cfg.output_mode,
                 report=report,
                 webhook_url=cfg.webhook_url,
+                tenant_id=getattr(cfg, "tenant_id", cfg.company_id),
                 api_key=cfg.api_key,
                 idempotency_key=idempotency_key,
                 retries=cfg.http_retries,

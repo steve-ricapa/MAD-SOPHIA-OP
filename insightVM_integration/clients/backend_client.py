@@ -84,10 +84,12 @@ class BackendClient:
     def __init__(
         self,
         ingest_url: str,
+        tenant_id: Optional[int] = None,
         api_key: Optional[str] = None,
         verify_ssl: bool = True,
     ) -> None:
         self.ingest_url = ingest_url
+        self.tenant_id = tenant_id
         self.api_key = api_key
         self.verify_ssl = verify_ssl
         self.session = requests.Session()
@@ -100,12 +102,21 @@ class BackendClient:
         backoff_seconds: int = 5,
         timeout: int = 60,
     ) -> None:
+        resolved_tenant_id = self.tenant_id or payload.get("tenant_id") or payload.get("tenantId") or payload.get("company_id")
+        scanner_type = str(payload.get("scanner_type") or "insightvm").strip().lower()
+        if not resolved_tenant_id:
+            raise PermanentDeliveryError("tenant_id is required to request snapshot upload URL")
+        if not self.api_key:
+            raise PermanentDeliveryError("api_key is required to request snapshot upload URL")
+
         headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["x-api-key"] = self.api_key
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        upload_request = {
+            "tenant_id": int(resolved_tenant_id),
+            "api_key": self.api_key,
+            "scanner_type": scanner_type,
+        }
         if idempotency_key:
-            headers["Idempotency-Key"] = idempotency_key
+            upload_request["idempotency_key"] = idempotency_key
 
         last_error: Optional[Exception] = None
         max_attempts = max(retries, 1)
@@ -114,14 +125,52 @@ class BackendClient:
             try:
                 response = self.session.post(
                     self.ingest_url,
-                    json=payload,
+                    json=upload_request,
                     headers=headers,
                     timeout=timeout,
                     verify=self.verify_ssl,
                 )
                 _save_payload_debug(payload, response.status_code, response.text or "")
 
-                if 200 <= response.status_code < 300 or response.status_code == 409:
+                if 200 <= response.status_code < 300:
+                    try:
+                        upload_response = response.json()
+                    except ValueError as exc:
+                        raise PermanentDeliveryError("Upload URL response is not valid JSON") from exc
+
+                    upload_url = upload_response.get("upload_url") or upload_response.get("uploadUrl")
+                    if not upload_url:
+                        raise PermanentDeliveryError("Upload URL response does not include upload_url")
+
+                    put_response = self.session.put(
+                        upload_url,
+                        data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        timeout=timeout,
+                        verify=self.verify_ssl,
+                    )
+                    if 200 <= put_response.status_code < 300:
+                        return
+                    put_snippet = (put_response.text or "")[:300]
+                    if put_response.status_code in RETRYABLE_STATUS_CODES:
+                        last_error = TransientDeliveryError(
+                            f"S3 upload HTTP {put_response.status_code} retriable: {put_snippet}"
+                        )
+                        if attempt < max_attempts:
+                            wait_for = _backoff_with_jitter(backoff_seconds, attempt)
+                            log.warning(
+                                "S3 upload attempt %s/%s retriable HTTP %s, retry in %.1fs",
+                                attempt, max_attempts, put_response.status_code, wait_for,
+                            )
+                            time.sleep(wait_for)
+                            continue
+                        raise last_error
+
+                    raise PermanentDeliveryError(
+                        f"S3 upload HTTP {put_response.status_code} non-retriable: {put_snippet}"
+                    )
+
+                if response.status_code == 409:
                     return
 
                 body_snippet = (response.text or "")[:300]

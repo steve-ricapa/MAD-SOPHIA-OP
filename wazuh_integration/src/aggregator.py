@@ -113,6 +113,7 @@ class Aggregator:
 
         return {
             "scan_id": config['scan_id'],
+            "tenant_id": config.get('tenant_id') or config.get('company_id'),
             "company_id": config['company_id'],
             "api_key": config['api_key'],
             "idempotency_key": idempotency_key,

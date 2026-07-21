@@ -1,6 +1,6 @@
 # Zabbix Real-time Agent
 
-Agente Python que consulta Zabbix por API, arma un reporte tipo `vuln_scan_report`, evita reenviar duplicados usando estado local y publica el resultado al backend de TxDxAI.
+Agente Python que consulta Zabbix por API, arma un reporte tipo `vuln_scan_report`, evita reenviar duplicados usando estado local y publica el resultado al backend AWS de TxDxAI.
 
 ## Flujo
 
@@ -8,12 +8,14 @@ Agente Python que consulta Zabbix por API, arma un reporte tipo `vuln_scan_repor
 2. Consulta problemas, hosts y triggers de Zabbix.
 3. Resume findings activos y resuenes de salud por host.
 4. Evita duplicados comparando fingerprints contra `state.json`.
-5. Envia al backend y guarda copias de debug locales.
+5. Solicita una URL de subida al backend AWS y sube el snapshot a S3.
+6. Guarda copias de debug locales.
 
 ## Variables principales
 
 - `ZABBIX_API_URL`, `ZABBIX_USER`, `ZABBIX_PASS`
-- `OUTPUT_MODE`, `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_ZABBIX` (fallback: `TXDXAI_API_KEY`)
+- `OUTPUT_MODE`, `TXDXAI_INGEST_URL`, `TXDXAI_TENANT_ID`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_ZABBIX` (fallback: `TXDXAI_API_KEY`)
+- `TXDXAI_INGEST_URL` debe apuntar a `/scans/upload-url`. Si `TXDXAI_TENANT_ID` no existe, se usa `TXDXAI_COMPANY_ID` como fallback.
 - `VERIFY_SSL`, `REQUEST_TIMEOUT`, `HTTP_RETRIES`, `BACKOFF_SECONDS`
 - `PROBLEMS_LIMIT`, `TRIGGERS_LIMIT`, `EVENTS_LIMIT`, `INCLUDE_EVENTS`
 - `STATE_FILE`, `DEBUG_REPORT_PATH`, `LAST_PAYLOAD_PATH`

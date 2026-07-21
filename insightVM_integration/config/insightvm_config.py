@@ -24,6 +24,7 @@ class InsightVMSettings:
 @dataclass(frozen=True)
 class BackendSettings:
     url: Optional[str]
+    tenant_id: int
     company_id: int
     api_key: Optional[str]
     verify: bool
@@ -87,9 +88,12 @@ def load_backend_settings() -> BackendSettings:
     queue_dir_raw = os.getenv("INSIGHTVM_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
     queue_dir = _resolve_path(base_dir, queue_dir_raw, "queue")
 
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID", "1"))
+
     return BackendSettings(
         url=os.getenv("TXDXAI_INGEST_URL"),
-        company_id=int(os.getenv("TXDXAI_COMPANY_ID", "1")),
+        tenant_id=int(os.getenv("TXDXAI_TENANT_ID") or company_id),
+        company_id=company_id,
         api_key=(
             os.getenv("TXDXAI_API_KEY_INSIGHTVM")
             or os.getenv("TXDXAI_API_KEY")

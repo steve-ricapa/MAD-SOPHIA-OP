@@ -30,6 +30,8 @@ class Sender:
             return "endpoint_not_found"
         if status_code == 400 and "api_key" in body and "required" in body:
             return "config_missing_api_key"
+        if status_code == 400 and "tenant" in body and "required" in body:
+            return "config_missing_tenant"
         if status_code in (429, 500, 502, 503, 504):
             return "transient_http"
         if 400 <= status_code < 500:
@@ -124,44 +126,120 @@ class Sender:
             return False, f"network_error={e}"
 
     async def send_report(self, report, max_retries=3):
-        """Sends the processed report to the backend (compression disabled)."""
+        """Requests an upload URL from the backend and uploads the snapshot to S3."""
         self._reset_last_result()
 
         api_key = None
+        tenant_id = None
         if isinstance(report, dict):
             api_key = report.get("api_key")
+            tenant_id = report.get("tenant_id") or report.get("tenantId") or report.get("company_id")
 
         if not api_key:
             self.last_failure_kind = "config_missing_api_key"
             self.last_error_body = "api_key missing in report payload"
             logger.error("Cannot send report: api_key is missing in payload")
             return False
+        if not tenant_id:
+            self.last_failure_kind = "config_missing_tenant"
+            self.last_error_body = "tenant_id missing in report payload"
+            logger.error("Cannot send report: tenant_id is missing in payload")
+            return False
 
-        headers = {"Content-Type": "application/json"}
-        headers["x-api-key"] = api_key
-        headers["X-API-Key"] = api_key
-        headers["Authorization"] = f"Bearer {api_key}"
+        upload_request = {
+            "tenant_id": int(tenant_id),
+            "api_key": api_key,
+            "scanner_type": str(report.get("scanner_type") or "wazuh").strip().lower(),
+        }
+        idempotency_key = report.get("idempotency_key")
+        if idempotency_key:
+            upload_request["idempotency_key"] = idempotency_key
 
         timeout = aiohttp.ClientTimeout(total=20)
-        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             for attempt in range(max_retries):
                 self.last_attempts = attempt + 1
                 try:
-                    async with session.post(self.ingest_url, json=report) as resp:
+                    async with session.post(
+                        self.ingest_url,
+                        json=upload_request,
+                        headers={"Content-Type": "application/json"},
+                    ) as resp:
                         error_body = await resp.text()
                         self.last_status_code = resp.status
                         self.last_error_body = error_body
                         self._save_payload_debug(report, resp.status, error_body, "")
 
-                        if resp.status in [200, 201]:
+                        if resp.status == 409:
                             self.last_failure_kind = None
                             logger.info(
-                                "Report sent successfully | status={} | attempt={}/{}",
+                                "Report already accepted by backend | status={} | attempt={}/{}",
                                 resp.status,
                                 attempt + 1,
                                 max_retries,
                             )
                             return True
+
+                        if 200 <= resp.status < 300:
+                            try:
+                                upload_response = json.loads(error_body or "{}")
+                            except json.JSONDecodeError:
+                                self.last_failure_kind = "validation"
+                                self.last_error_body = "upload-url response is not valid JSON"
+                                logger.error("Backend upload-url response is not valid JSON")
+                                return False
+
+                            upload_url = upload_response.get("upload_url") or upload_response.get("uploadUrl")
+                            if not upload_url:
+                                self.last_failure_kind = "validation"
+                                self.last_error_body = "upload-url response missing upload_url"
+                                logger.error("Backend upload-url response missing upload_url")
+                                return False
+
+                            body = json.dumps(report, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                            async with session.put(
+                                upload_url,
+                                data=body,
+                                headers={"Content-Type": "application/json"},
+                            ) as put_resp:
+                                put_body = await put_resp.text()
+                                self.last_status_code = put_resp.status
+                                self.last_error_body = put_body
+
+                                if 200 <= put_resp.status < 300:
+                                    self.last_failure_kind = None
+                                    logger.info(
+                                        "Report uploaded successfully | upload_url_status={} | s3_status={} | attempt={}/{}",
+                                        resp.status,
+                                        put_resp.status,
+                                        attempt + 1,
+                                        max_retries,
+                                    )
+                                    return True
+
+                                failure_kind = self._classify_failure(put_resp.status, put_body)
+                                self.last_failure_kind = failure_kind
+                                if failure_kind == "transient_http":
+                                    wait = 2 ** attempt
+                                    logger.warning(
+                                        "S3 transient upload error | status={} | attempt={}/{} | retry_in={}s | body={}",
+                                        put_resp.status,
+                                        attempt + 1,
+                                        max_retries,
+                                        wait,
+                                        put_body,
+                                    )
+                                    if attempt < max_retries - 1:
+                                        await asyncio.sleep(wait)
+                                    continue
+
+                                logger.error(
+                                    "S3 rejected report upload | status={} | kind={} | body={}",
+                                    put_resp.status,
+                                    failure_kind,
+                                    put_body,
+                                )
+                                return False
 
                         failure_kind = self._classify_failure(resp.status, error_body)
                         self.last_failure_kind = failure_kind

@@ -679,6 +679,7 @@ def emit_payload(
     output_mode: str,
     url: str,
     api_key: str,
+    tenant_id: int | None = None,
     company_id: int,
     payload: dict[str, Any],
     timeout: int = 15,
@@ -711,20 +712,29 @@ def emit_payload(
             payload = dict(payload)  # copia para no mutar original
             if api_key:
                 payload["api_key"] = api_key
+            resolved_tenant_id = tenant_id or payload.get("tenant_id") or payload.get("tenantId") or company_id
+            if resolved_tenant_id:
+                payload["tenant_id"] = int(resolved_tenant_id)
             if company_id:
                 payload["company_id"] = company_id
 
         headers = {"Content-Type": "application/json"}
 
-        # Idempotency-Key para dedup a nivel HTTP
-        idem_key = payload.get("idempotency_key", "")
-        if idem_key:
-            headers["Idempotency-Key"] = idem_key
+        resolved_tenant_id = tenant_id or payload.get("tenant_id") or payload.get("tenantId") or payload.get("company_id")
+        if not resolved_tenant_id:
+            raise ValueError("TXDXAI_TENANT_ID/TXDXAI_COMPANY_ID requerido para solicitar upload_url")
+        if not api_key:
+            raise ValueError("TXDXAI_API_KEY_OPENVAS/TXDXAI_API_KEY requerido para solicitar upload_url")
 
-        # Fallbacks: por si backend tambiÃ©n acepta header
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-            headers["X-API-Key"] = api_key
+        # Idempotency key via body for the AWS upload-url contract.
+        idem_key = payload.get("idempotency_key", "")
+        upload_request = {
+            "tenant_id": int(resolved_tenant_id),
+            "api_key": api_key,
+            "scanner_type": str(payload.get("scanner_type") or "openvas").strip().lower(),
+        }
+        if idem_key:
+            upload_request["idempotency_key"] = idem_key
 
         if not tls_verify:
             try:
@@ -735,16 +745,39 @@ def emit_payload(
 
         r = requests.post(
             url,
-            json=payload,
+            json=upload_request,
             headers=headers,
             timeout=timeout,
             verify=tls_verify,
         )
         _save_payload_debug(payload, r.status_code, (r.text or "")[:1000])
 
-        if 200 <= r.status_code < 300 or r.status_code == 409:
+        if r.status_code == 409:
             print(f"[{_now()}] OK backend ({r.status_code})")
             return True
+
+        if 200 <= r.status_code < 300:
+            try:
+                upload_response = r.json()
+            except ValueError as e:
+                raise RuntimeError("Backend no devolvio JSON valido con upload_url") from e
+
+            upload_url = upload_response.get("upload_url") or upload_response.get("uploadUrl")
+            if not upload_url:
+                raise RuntimeError("Backend no devolvio upload_url")
+
+            put_response = requests.put(
+                upload_url,
+                data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                timeout=timeout,
+                verify=tls_verify,
+            )
+            if 200 <= put_response.status_code < 300:
+                print(f"[{_now()}] OK backend upload_url ({r.status_code}) + s3 ({put_response.status_code})")
+                return True
+            snippet = (put_response.text or "")[:300]
+            raise RuntimeError(f"S3 rechazo snapshot: HTTP {put_response.status_code}. Respuesta: {snippet}")
 
         snippet = (r.text or "")[:300]
         raise RuntimeError(f"Backend rechazÃ³: HTTP {r.status_code}. Respuesta: {snippet}")

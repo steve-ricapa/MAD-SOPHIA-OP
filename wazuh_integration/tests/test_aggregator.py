@@ -30,7 +30,7 @@ class TestAggregator(unittest.TestCase):
         report = self.agg.create_report(
             processed_alerts=[],
             agent_summary={"total": 5},
-            config={"scan_id": "scan-1", "company_id": 1, "api_key": "k"},
+            config={"scan_id": "scan-1", "tenant_id": 9, "company_id": 1, "api_key": "k"},
             idempotency_key="test-key",
             snapshot_signature="test-sig",
             send_reason="first_snapshot",
@@ -40,6 +40,7 @@ class TestAggregator(unittest.TestCase):
             source="mad-collector",
         )
         self.assertEqual(report["event_type"], "vuln_scan_report")
+        self.assertEqual(report["tenant_id"], 9)
         self.assertEqual(report["scanner_type"], "wazuh")
         self.assertEqual(report["idempotency_key"], "test-key")
         self.assertEqual(report["scan_summary"]["total_hosts"], 5)

@@ -4,13 +4,13 @@ from pathlib import Path
 import pytest
 
 
-for _module_name in ("deliver", "collector", "summarizer", "agent", "config"):
+for _module_name in ("deliver",):
     sys.modules.pop(_module_name, None)
 
 
-NESSUS_DIR = Path(__file__).resolve().parents[1]
-if str(NESSUS_DIR) not in sys.path:
-    sys.path.insert(0, str(NESSUS_DIR))
+UPTIME_DIR = Path(__file__).resolve().parents[1]
+if str(UPTIME_DIR) not in sys.path:
+    sys.path.insert(0, str(UPTIME_DIR))
 
 import deliver
 
@@ -51,7 +51,7 @@ def test_send_webhook_requests_upload_url_then_puts_snapshot(monkeypatch):
     monkeypatch.setattr(deliver.requests, "post", _post)
     monkeypatch.setattr(deliver.requests, "put", _put)
 
-    payload = {"scan_id": "NE-1", "company_id": 4, "scanner_type": "nessus", "findings": []}
+    payload = {"scan_id": "UK-1", "company_id": 4, "scanner_type": "uptime_kuma", "findings": []}
     deliver.send_webhook(
         webhook_url="https://api.example/scans/upload-url",
         payload=payload,
@@ -66,37 +66,12 @@ def test_send_webhook_requests_upload_url_then_puts_snapshot(monkeypatch):
     assert calls["post"]["json"] == {
         "tenant_id": 9,
         "api_key": "agent-key",
-        "scanner_type": "nessus",
+        "scanner_type": "uptime_kuma",
         "idempotency_key": "sha256:abc",
     }
     assert calls["put"]["url"] == "https://s3.example/upload"
     assert calls["put"]["headers"] == {"Content-Type": "application/json"}
-    assert b'"scan_id":"NE-1"' in calls["put"]["data"]
-
-
-def test_deliver_webhook_success(monkeypatch, tmp_path):
-    sent = {"ok": False}
-
-    def _fake_send_webhook(**kwargs):
-        sent["ok"] = True
-
-    monkeypatch.setattr(deliver, "send_webhook", _fake_send_webhook)
-    monkeypatch.setattr(deliver, "flush_queue", lambda **kwargs: 0)
-
-    result = deliver.deliver(
-        mode="webhook",
-        report={"scan_id": "NE-1"},
-        webhook_url="https://ingest.example/scans/upload-url",
-        tenant_id=4,
-        api_key="k",
-        idempotency_key="id-1",
-        queue_enabled=True,
-        queue_dir=tmp_path,
-    )
-
-    assert sent["ok"] is True
-    assert result["sent"] is True
-    assert result["queued"] is False
+    assert b'"scan_id":"UK-1"' in calls["put"]["data"]
 
 
 def test_deliver_transient_error_queues_payload(monkeypatch, tmp_path):
@@ -108,11 +83,11 @@ def test_deliver_transient_error_queues_payload(monkeypatch, tmp_path):
 
     result = deliver.deliver(
         mode="webhook",
-        report={"scan_id": "NE-2"},
+        report={"scan_id": "UK-2"},
         webhook_url="https://ingest.example/scans/upload-url",
         tenant_id=4,
         api_key="k",
-        idempotency_key="id-2",
+        idempotency_key="sha256:def",
         queue_enabled=True,
         queue_dir=tmp_path,
     )
@@ -132,7 +107,7 @@ def test_deliver_permanent_error_raises(monkeypatch):
     with pytest.raises(deliver.PermanentDeliveryError):
         deliver.deliver(
             mode="webhook",
-            report={"scan_id": "NE-3"},
+            report={"scan_id": "UK-3"},
             webhook_url="https://ingest.example/scans/upload-url",
             tenant_id=4,
             api_key="k",

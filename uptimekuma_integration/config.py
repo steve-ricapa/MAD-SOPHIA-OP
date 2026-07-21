@@ -14,6 +14,7 @@ class Config:
     metrics_path: str
     output_mode: str
     webhook_url: Optional[str]
+    tenant_id: int
     company_id: int
     api_key: str
     scanner_type: str
@@ -76,6 +77,7 @@ def load_config() -> Config:
     output_mode = (os.getenv("UPTIME_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "stdout").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
     company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
+    tenant_id = int(os.getenv("TXDXAI_TENANT_ID") or company_id)
     api_key = (
         os.getenv("TXDXAI_API_KEY_UPTIMEKUMA")
         or os.getenv("TXDXAI_API_KEY")
@@ -149,6 +151,7 @@ def load_config() -> Config:
         metrics_path=metrics_path,
         output_mode=output_mode,
         webhook_url=webhook_url.strip() if webhook_url else None,
+        tenant_id=tenant_id,
         company_id=company_id,
         api_key=api_key,
         scanner_type=scanner_type,

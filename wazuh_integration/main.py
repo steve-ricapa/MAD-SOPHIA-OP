@@ -28,6 +28,7 @@ WAZUH_BANNER = r"""
 
 NON_RETRYABLE_FAILURE_KINDS = {
     "config_missing_api_key",
+    "config_missing_tenant",
     "auth",
     "validation",
     "endpoint_not_found",
@@ -53,9 +54,9 @@ def resolve_path(base_dir: Path, raw_path: str) -> Path:
     return candidate
 
 
-def collect_missing_required_config(company_id, api_key, ingest_url, indexer_host, indexer_user, indexer_pass, api_host, api_user, api_pass):
+def collect_missing_required_config(tenant_id, api_key, ingest_url, indexer_host, indexer_user, indexer_pass, api_host, api_user, api_pass):
     checks = {
-        "TXDXAI_COMPANY_ID (>0)": company_id > 0,
+        "TXDXAI_TENANT_ID / TXDXAI_COMPANY_ID (>0)": tenant_id > 0,
         "TXDXAI_API_KEY_WAZUH / TXDXAI_API_KEY / API_KEY": bool(api_key),
         "TXDXAI_INGEST_URL": bool(ingest_url),
         "WAZUH_INDEXER_HOST": bool(indexer_host),
@@ -316,7 +317,7 @@ async def retry_failed_payloads(sender, app_cfg):
         await asyncio.sleep(int(app_cfg["retry_failed_interval_seconds"]))
 
 
-async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg, single_run=False):
+async def poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id, api_key, app_cfg, single_run=False):
     """Snapshot-based loop: fetch full window, compute signature, decide send."""
     while True:
         try:
@@ -381,7 +382,7 @@ async def poll_alerts(indexer, aggregator, state, sender, company_id, api_key, a
                 )
             else:
                 scan_id = str(uuid.uuid4())
-                config = {"scan_id": scan_id, "company_id": company_id, "api_key": api_key}
+                config = {"scan_id": scan_id, "tenant_id": tenant_id, "company_id": company_id, "api_key": api_key}
 
                 report = aggregator.create_report(
                     findings, agent_summary, config,
@@ -558,6 +559,7 @@ async def main():
     load_dotenv()
 
     company_id = int(os.getenv("TXDXAI_COMPANY_ID", 0))
+    tenant_id = int(os.getenv("TXDXAI_TENANT_ID", company_id))
     api_key = (
         os.getenv("TXDXAI_API_KEY_WAZUH")
         or os.getenv("TXDXAI_API_KEY")
@@ -637,7 +639,7 @@ async def main():
     agent_polling_enabled = api_enabled and api is not None
 
     missing_required = collect_missing_required_config(
-        company_id=company_id,
+        tenant_id=tenant_id,
         api_key=api_key,
         ingest_url=ingest_url,
         indexer_host=indexer_host,
@@ -711,7 +713,7 @@ async def main():
         else:
             logger.info("Wazuh API polling disabled by configuration; only Indexer alerts will be collected.")
 
-    aggregator = Aggregator(tenant_id=str(company_id))
+    aggregator = Aggregator(tenant_id=str(tenant_id))
     state = StateStore(db_path=checkpoint_file)
 
     app = web.Application()
@@ -734,14 +736,14 @@ async def main():
     try:
         if args.once:
             await site.start()
-            await poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg, single_run=True)
+            await poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id, api_key, app_cfg, single_run=True)
             if agent_polling_enabled and api is not None:
                 await poll_agents(api, aggregator, state, single_run=True)
             logger.info("Single-run mode completed. Exiting.")
         else:
             tasks = [
                 site.start(),
-                poll_alerts(indexer, aggregator, state, sender, company_id, api_key, app_cfg),
+                poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id, api_key, app_cfg),
                 retry_failed_payloads(sender, app_cfg),
             ]
             if agent_polling_enabled and api is not None:

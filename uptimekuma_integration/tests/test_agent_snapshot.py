@@ -23,16 +23,18 @@ def _cfg(tmp_path, **overrides):
         "include_all_monitors": True,
         "include_extended_fields": False,
         "company_id": 4,
-        "scanner_type": "uptimekuma",
+        "tenant_id": 4,
+        "scanner_type": "uptime_kuma",
         "event_type": "vuln_scan_report",
         "api_key": "api-k",
         "output_mode": "webhook",
-        "webhook_url": "https://ingest.example/api/scans/ingest",
+        "webhook_url": "https://ingest.example/scans/upload-url",
         "http_retries": 1,
         "backoff_seconds": 1,
         "request_timeout": 5,
         "verify_ssl": True,
         "last_payload_path": tmp_path / "last_payload_sent.json",
+        "delivery_meta_path": tmp_path / "last_delivery_meta.json",
         "queue_enabled": True,
         "queue_dir": tmp_path / "queue",
         "queue_flush_max": 10,
@@ -102,7 +104,7 @@ def test_run_once_sends_snapshot_with_metadata(monkeypatch, tmp_path):
     assert next_state["has_sent_once"] is True
     assert next_state["last_send_result"] == "sent"
     meta = captured["report"]["scan_summary"]["meta"]
-    assert meta["schema_version"] == "1.0"
+    assert meta["schema_version"] == "1.2"
     assert meta["mad_version"] == "2.3.0"
     assert meta["integration_version"] == "1.0.0"
     assert meta["source"] == "mad-collector"
@@ -170,6 +172,6 @@ def test_run_once_always_send_mode(monkeypatch, tmp_path):
 
     assert next_state["has_sent_once"] is True
     meta = captured["report"]["scan_summary"]["meta"]
-    assert meta["schema_version"] == "1.0"
+    assert meta["schema_version"] == "1.2"
     assert meta["snapshot_mode"] == "always"
     assert meta["send_reason"] == "always_snapshot"

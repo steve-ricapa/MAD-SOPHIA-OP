@@ -16,6 +16,7 @@ class Config:
     output_mode: str  # stdout | webhook | all
     webhook_url: Optional[str]
     state_path: str
+    tenant_id: int
     company_id: int
     api_key: str
     interval: int
@@ -72,6 +73,7 @@ def load_config() -> Config:
     output_mode = (os.getenv("ZABBIX_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "stdout").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
     company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
+    tenant_id = int(os.getenv("TXDXAI_TENANT_ID") or company_id)
     api_key = (
         os.getenv("TXDXAI_API_KEY_ZABBIX")
         or os.getenv("TXDXAI_API_KEY")
@@ -142,6 +144,7 @@ def load_config() -> Config:
         output_mode=output_mode,
         webhook_url=webhook_url.strip() if webhook_url else None,
         state_path=str(state_path),
+        tenant_id=tenant_id,
         company_id=company_id,
         api_key=api_key.strip(),
         interval=interval,

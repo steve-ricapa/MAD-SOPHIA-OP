@@ -7,7 +7,7 @@ Este proyecto implementa un **agente recolector** pensado para **entornos de lab
 1) **Obtener reportes existentes** (en XML) desde un origen tipo OpenVAS/GVM  
 2) **Procesar** los resultados para construir un resumen de severidades  
 3) **Evitar duplicados** con estado local persistente (`state.json`)  
-4) **Emitir** el payload (en backend o en consola, dependiendo del modo)
+4) **Emitir** el payload (en backend AWS/S3 o en consola, dependiendo del modo)
 
 Este tipo de agente sirve para:
 
@@ -101,7 +101,7 @@ A nivel operacional, el ciclo del agente suele verse así:
 
 9. **Emisión**
    - En modo simplificado: se imprime en consola
-   - En modo backend: se envía por HTTP (si aplica)
+   - En modo backend: solicita `upload_url` y sube el snapshot a S3 (si aplica)
 
 10. **Actualización de estado**
 
@@ -188,7 +188,13 @@ El agente construye un payload típico que incluye:
 ```
 
 > En modo simplificado, este payload **solo se imprime**.  
-> En modo backend, este payload se usa como cuerpo JSON del POST (si existiera).
+> En modo backend AWS, primero se pide `/scans/upload-url` y luego este payload se sube con `PUT` a la URL prefirmada de S3.
+
+### Backend AWS
+
+- `TXDXAI_INGEST_URL` debe apuntar a `/scans/upload-url`.
+- `TXDXAI_TENANT_ID` identifica el tenant en AWS. Si no se define, se usa `TXDXAI_COMPANY_ID` como fallback.
+- `TXDXAI_API_KEY_OPENVAS` debe ser una Agent API key activa para `openvas`.
 
 ---
 

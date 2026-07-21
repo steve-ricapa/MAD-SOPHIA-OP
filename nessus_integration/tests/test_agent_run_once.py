@@ -21,16 +21,18 @@ def _cfg(tmp_path, **overrides):
         "snapshot_always_send": False,
         "include_all_findings": True,
         "company_id": 4,
+        "tenant_id": 4,
         "scanner_type": "nessus",
         "event_type": "vuln_scan_report",
         "api_key": "k",
         "output_mode": "webhook",
-        "webhook_url": "https://ingest.example/api/scans/ingest",
+        "webhook_url": "https://ingest.example/scans/upload-url",
         "http_retries": 1,
         "backoff_seconds": 1,
         "request_timeout": 5,
         "verify_ssl": False,
         "last_payload_path": tmp_path / "last_payload.json",
+        "delivery_meta_path": tmp_path / "last_delivery_meta.json",
         "queue_enabled": True,
         "queue_dir": tmp_path / "queue",
         "queue_flush_max": 10,
@@ -87,7 +89,7 @@ def test_run_once_sends_and_updates_state(monkeypatch, tmp_path):
     assert next_state["has_sent_once"] is True
     assert next_state["unchanged_cycles"] == 0
     assert "10" in next_state["processed_scans"]
-    assert next_state.get("last_idempotency_key", "").startswith("nessus-snapshot-")
+    assert next_state.get("last_idempotency_key", "").startswith("sha256:")
 
 
 def test_run_once_skips_send_when_unchanged(monkeypatch, tmp_path):

@@ -30,7 +30,7 @@ class _FakeIndexer:
 
 class _FakeSender:
     def __init__(self):
-        self.ingest_url = "https://ingest.local/api/scans/ingest"
+        self.ingest_url = "https://ingest.local/scans/upload-url"
         self.last_status_code = 200
         self.last_failure_kind = None
         self.last_error_body = None
@@ -43,9 +43,9 @@ class _FakeSender:
 class TestMainConfig(unittest.TestCase):
     def test_collect_missing_required_config_does_not_require_api(self):
         missing = collect_missing_required_config(
-            company_id=4,
+            tenant_id=4,
             api_key="k",
-            ingest_url="https://ingest.local/api/scans/ingest",
+            ingest_url="https://ingest.local/scans/upload-url",
             indexer_host="https://indexer.local:9200",
             indexer_user="user",
             indexer_pass="pass",

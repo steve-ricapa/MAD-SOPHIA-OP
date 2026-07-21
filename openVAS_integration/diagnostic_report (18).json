@@ -1,0 +1,222 @@
+{
+  "started_at": "2026-06-15 17:10:03",
+  "finished_at": "2026-06-15 17:13:04",
+  "total_duration_ms": 180506,
+  "target_scope": "selected",
+  "env_snapshot_sanitized": {
+    "zabbix": {
+      "HOSTNAME": "***REDACTED***",
+      "USER": "***REDACTED***",
+      "TXDXAI_INGEST_URL": "***REDACTED***",
+      "TXDXAI_COMPANY_ID": "***REDACTED***",
+      "WAZUH_INDEXER_HOST": "***REDACTED***",
+      "WAZUH_INDEXER_USER": "***REDACTED***",
+      "WAZUH_INDEXER_PASSWORD": "***REDACTED***",
+      "WAZUH_INDEXER_VERIFY_TLS": "***REDACTED***",
+      "WAZUH_API_HOST": "***REDACTED***",
+      "WAZUH_API_USER": "***REDACTED***",
+      "WAZUH_API_PASSWORD": "***REDACTED***",
+      "WAZUH_API_VERIFY_TLS": "***REDACTED***",
+      "WAZUH_WUI_USER": "***REDACTED***",
+      "WAZUH_WUI_PASSWORD": "***REDACTED***",
+      "TXDXAI_API_KEY_WAZUH": "***REDACTED***",
+      "WAZUH_OUTPUT_MODE": "***REDACTED***",
+      "WAZUH_POLL_INTERVAL_ALERTS": "***REDACTED***",
+      "WAZUH_POLL_INTERVAL_AGENTS": "***REDACTED***",
+      "WAZUH_RETRY_FAILED_INTERVAL_SECONDS": "***REDACTED***",
+      "WAZUH_HEARTBEAT_EMPTY_CYCLES": "***REDACTED***",
+      "ZABBIX_API_URL": "***REDACTED***",
+      "ZABBIX_USER": "***REDACTED***",
+      "ZABBIX_PASS": "***REDACTED***",
+      "ZABBIX_OUTPUT_MODE": "***REDACTED***",
+      "ZABBIX_HOURS": "***REDACTED***",
+      "ZABBIX_INTERVAL": "***REDACTED***",
+      "ZABBIX_VERIFY_SSL": "***REDACTED***",
+      "ZABBIX_REQUEST_TIMEOUT": "***REDACTED***",
+      "ZABBIX_HTTP_RETRIES": "***REDACTED***",
+      "ZABBIX_BACKOFF_SECONDS": "***REDACTED***",
+      "ZABBIX_PROBLEMS_LIMIT": "***REDACTED***",
+      "ZABBIX_TRIGGERS_LIMIT": "***REDACTED***",
+      "ZABBIX_EVENTS_LIMIT": "***REDACTED***",
+      "ZABBIX_INCLUDE_EVENTS": "***REDACTED***",
+      "TXDXAI_API_KEY_ZABBIX": "***REDACTED***",
+      "ZABBIX_STATE_FILE": "***REDACTED***",
+      "ZABBIX_DEBUG_REPORT_PATH": "***REDACTED***",
+      "ZABBIX_LAST_PAYLOAD_PATH": "***REDACTED***",
+      "OPENVAS_OUTPUT_MODE": "***REDACTED***",
+      "OPENVAS_COLLECTOR": "***REDACTED***",
+      "OPENVAS_POLL_SECONDS": "***REDACTED***",
+      "OPENVAS_STATE_PATH": "***REDACTED***",
+      "OPENVAS_DETAIL_LEVEL": "***REDACTED***",
+      "OPENVAS_TOP_N": "***REDACTED***",
+      "OPENVAS_REPORT_MAX_KB": "***REDACTED***",
+      "OPENVAS_FINDING_TEXT_MAX": "***REDACTED***",
+      "OPENVAS_DEBUG": "***REDACTED***",
+      "OPENVAS_MAX_ERROR_REPEAT": "***REDACTED***",
+      "GVM_TRANSPORT": "***REDACTED***",
+      "GVM_ALLOW_PLAIN_TCP": "***REDACTED***",
+      "GVM_USERNAME": "***REDACTED***",
+      "GVM_PASSWORD": "***REDACTED***",
+      "GVM_HOST": "***REDACTED***",
+      "GVM_PORT": "***REDACTED***",
+      "GVM_USE_TLS": "***REDACTED***",
+      "TXDXAI_API_KEY_OPENVAS": "***REDACTED***",
+      "INSIGHTVM_USER": "***REDACTED***",
+      "INSIGHTVM_PASSWORD": "***REDACTED***",
+      "INSIGHTVM_BASE_URL": "***REDACTED***",
+      "INSIGHTVM_VERIFY_SSL": "***REDACTED***",
+      "TXDXAI_API_KEY_INSIGHTVM": "***REDACTED***",
+      "INSIGHTVM_OUTPUT_MODE": "***REDACTED***",
+      "INSIGHTVM_INTERVAL_SECONDS": "***REDACTED***",
+      "INSIGHTVM_STATE_FILE": "***REDACTED***",
+      "UPTIME_KUMA_URL": "***REDACTED***",
+      "UPTIME_KUMA_METRICS_PATH": "***REDACTED***",
+      "UPTIME_KUMA_DB_PATH": "***REDACTED***",
+      "UPTIME_KUMA_API_KEY_ID": "***REDACTED***",
+      "UPTIME_KUMA_API_KEY": "***REDACTED***",
+      "UPTIME_OUTPUT_MODE": "***REDACTED***",
+      "UPTIME_SCANNER_TYPE": "***REDACTED***",
+      "UPTIME_POLL_INTERVAL_SECONDS": "***REDACTED***",
+      "UPTIME_FORCE_SEND_EVERY_CYCLES": "***REDACTED***",
+      "UPTIME_REQUEST_TIMEOUT": "***REDACTED***",
+      "UPTIME_HTTP_RETRIES": "***REDACTED***",
+      "UPTIME_BACKOFF_SECONDS": "***REDACTED***",
+      "UPTIME_VERIFY_SSL": "***REDACTED***",
+      "UPTIME_EVENT_TYPE": "***REDACTED***",
+      "UPTIME_QUEUE_ENABLED": "***REDACTED***",
+      "UPTIME_QUEUE_DIR": "***REDACTED***",
+      "UPTIME_QUEUE_FLUSH_MAX": "***REDACTED***",
+      "UPTIME_RAW_SNAPSHOT_PATH": "***REDACTED***",
+      "UPTIME_INCLUDE_ALL_MONITORS": "***REDACTED***",
+      "UPTIME_INCLUDE_EXTENDED_FIELDS": "***REDACTED***",
+      "TXDXAI_API_KEY_UPTIMEKUMA": "***REDACTED***",
+      "NESSUS_BASE_URL": "***REDACTED***",
+      "NESSUS_ACCESS_KEY": "***REDACTED***",
+      "NESSUS_SECRET_KEY": "***REDACTED***",
+      "NESSUS_VERIFY_SSL": "***REDACTED***",
+      "NESSUS_MAX_SCANS_PER_CYCLE": "***REDACTED***",
+      "NESSUS_SCAN_IDS": "",
+      "NESSUS_FOLDER_ID": "",
+      "NESSUS_OUTPUT_MODE": "***REDACTED***",
+      "NESSUS_SCANNER_TYPE": "***REDACTED***",
+      "NESSUS_POLL_INTERVAL_SECONDS": "***REDACTED***",
+      "NESSUS_FORCE_SEND_EVERY_CYCLES": "***REDACTED***",
+      "NESSUS_REQUEST_TIMEOUT": "***REDACTED***",
+      "NESSUS_HTTP_RETRIES": "***REDACTED***",
+      "NESSUS_BACKOFF_SECONDS": "***REDACTED***",
+      "NESSUS_EVENT_TYPE": "***REDACTED***",
+      "NESSUS_QUEUE_ENABLED": "***REDACTED***",
+      "NESSUS_QUEUE_DIR": "***REDACTED***",
+      "NESSUS_QUEUE_FLUSH_MAX": "***REDACTED***",
+      "NESSUS_RAW_SNAPSHOT_PATH": "***REDACTED***",
+      "NESSUS_INCLUDE_ALL_FINDINGS": "***REDACTED***",
+      "TXDXAI_API_KEY_NESSUS": "***REDACTED***"
+    }
+  },
+  "results": [
+    {
+      "name": "zabbix",
+      "status": "FAIL",
+      "phase": "execution",
+      "details": "timeout after 180.0s",
+      "raw_error_excerpt": "TIMEOUT after 180.0s",
+      "return_code": null,
+      "log_file": "/root/MAD-SOPHIA-OP/runtime/diagnostics/20260615_171003/zabbix.log",
+      "phases": [
+        {
+          "phase": "env",
+          "status": "PASS",
+          "duration_ms": 0,
+          "normalized_error": null,
+          "raw_error_excerpt": null,
+          "evidence": {
+            "required_keys": [
+              "TXDXAI_API_KEY_ZABBIX",
+              "TXDXAI_INGEST_URL",
+              "TXDXAI_COMPANY_ID",
+              "ZABBIX_API_URL",
+              "ZABBIX_USER",
+              "ZABBIX_PASS"
+            ]
+          }
+        },
+        {
+          "phase": "dns",
+          "status": "PASS",
+          "duration_ms": 0,
+          "normalized_error": null,
+          "raw_error_excerpt": null,
+          "evidence": {
+            "host": "10.208.232.46",
+            "port": 443,
+            "resolved_ips": [
+              "10.208.232.46"
+            ]
+          }
+        },
+        {
+          "phase": "tcp",
+          "status": "PASS",
+          "duration_ms": 1,
+          "normalized_error": null,
+          "raw_error_excerpt": null,
+          "evidence": {
+            "host": "10.208.232.46",
+            "port": 443
+          }
+        },
+        {
+          "phase": "tls",
+          "status": "PASS",
+          "duration_ms": 16,
+          "normalized_error": null,
+          "raw_error_excerpt": null,
+          "evidence": {
+            "host": "10.208.232.46",
+            "port": 443,
+            "verify_ssl": false,
+            "cert_validation": "skipped_by_zabbix_verify_ssl_false"
+          }
+        },
+        {
+          "phase": "auth",
+          "status": "PASS",
+          "duration_ms": 304,
+          "normalized_error": null,
+          "raw_error_excerpt": "{\"jsonrpc\":\"2.0\",\"result\":\"ba0675ac54a512d5b9f672ff5ff96e88\",\"id\":2}",
+          "evidence": {
+            "endpoint": "https://10.208.232.46/api_jsonrpc.php",
+            "http_status": 200
+          }
+        },
+        {
+          "phase": "api",
+          "status": "PASS",
+          "duration_ms": 467,
+          "normalized_error": null,
+          "raw_error_excerpt": "{\"jsonrpc\":\"2.0\",\"result\":\"7.4.9\",\"id\":1}",
+          "evidence": {
+            "endpoint": "https://10.208.232.46/api_jsonrpc.php",
+            "http_status": 200
+          }
+        },
+        {
+          "phase": "execution",
+          "status": "FAIL",
+          "duration_ms": 180011,
+          "normalized_error": "timeout",
+          "raw_error_excerpt": "TIMEOUT after 180.0s",
+          "evidence": {
+            "command": [
+              "/root/MAD-SOPHIA-OP/myenv/bin/python3",
+              "/root/MAD-SOPHIA-OP/zabix_integration/agent.py",
+              "--once"
+            ],
+            "workdir": "/root/MAD-SOPHIA-OP/runtime/zabbix"
+          }
+        }
+      ],
+      "summary": "precheck PASS | execution FAIL"
+    }
+  ]
+}

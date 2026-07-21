@@ -8,7 +8,7 @@ Agente Python para consumir datos de Nessus, normalizarlos al formato unificado 
 2. Filtra por estado (`completed/imported`) y opcionalmente por `NESSUS_SCAN_IDS` o `NESSUS_FOLDER_ID`.
 3. Obtiene detalles de cada scan (`/scans/{id}`), resume severidades y findings.
 4. Mantiene estado local en `state.json` para detectar cambios de snapshot.
-5. Envia reporte al backend (`OUTPUT_MODE=webhook|all`) o imprime (`stdout`).
+5. Solicita una URL de subida al backend AWS y sube el snapshot a S3 (`OUTPUT_MODE=webhook|all`) o imprime (`stdout`).
 6. Incluye `idempotency_key` por snapshot y cola local en disco para fallos transitorios.
 
 ## Variables de entorno
@@ -20,7 +20,9 @@ Agente Python para consumir datos de Nessus, normalizarlos al formato unificado 
 - `NESSUS_SCAN_IDS` (opcional, IDs separados por coma)
 - `NESSUS_FOLDER_ID` (opcional)
 - `OUTPUT_MODE` = `stdout | webhook | all`
-- `TXDXAI_INGEST_URL`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_NESSUS` (fallback: `TXDXAI_API_KEY`)
+- `TXDXAI_INGEST_URL` debe apuntar a `/scans/upload-url` del backend AWS.
+- `TXDXAI_TENANT_ID` identifica el tenant en AWS. Si no se define, usa `TXDXAI_COMPANY_ID` como fallback.
+- `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_NESSUS` (fallback: `TXDXAI_API_KEY`)
 - `POLL_INTERVAL_SECONDS` (default: `60`)
 - `FORCE_SEND_EVERY_CYCLES` (default: `10`)
 - `INCLUDE_ALL_FINDINGS` (default: `true`)

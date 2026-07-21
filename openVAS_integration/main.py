@@ -14,7 +14,7 @@ from pathlib import Path
 import traceback
 
 from config import (
-    OUTPUT_MODE, TXDXAI_INGEST_URL, TXDXAI_COMPANY_ID, TXDXAI_API_KEY,
+    OUTPUT_MODE, TXDXAI_INGEST_URL, TXDXAI_COMPANY_ID, TXDXAI_TENANT_ID, TXDXAI_API_KEY,
     COLLECTOR, POLL_SECONDS, FORCE_SEND_EVERY_CYCLES, SNAPSHOT_ALWAYS_SEND, STATE_PATH, META_MAX_KB,
     GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD, GVM_SOCKET, GVM_TRANSPORT,
     GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_TIMEOUT,
@@ -647,6 +647,7 @@ while True:
                             output_mode=OUTPUT_MODE,
                             url=TXDXAI_INGEST_URL,
                             api_key=TXDXAI_API_KEY,
+                            tenant_id=TXDXAI_TENANT_ID,
                             company_id=TXDXAI_COMPANY_ID,
                             payload=payload,
                             timeout=15,
