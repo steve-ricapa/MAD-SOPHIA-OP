@@ -79,7 +79,8 @@ def _parse_scan_ids(raw: Optional[str]) -> Optional[set[int]]:
 def load_config() -> Config:
     base_dir = Path(__file__).resolve().parent
     root_dir = base_dir.parent
-    load_dotenv(base_dir / ".env")
+    load_dotenv(root_dir / ".env", override=False)
+    load_dotenv(base_dir / ".env", override=False)
 
     nessus_base_url = os.getenv("NESSUS_BASE_URL", "").strip()
     nessus_access_key = os.getenv("NESSUS_ACCESS_KEY", "").strip()

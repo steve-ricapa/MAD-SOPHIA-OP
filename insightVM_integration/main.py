@@ -62,7 +62,7 @@ def save_json(path: str, data: dict) -> None:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Agente InsightVM Snapshot v1.0")
 
-    p.add_argument("--env", default=".env", help="Ruta del archivo .env (default: .env)")
+    p.add_argument("--env", default=None, help="Ruta opcional de un .env especifico")
     p.add_argument("--once", action="store_true", help="Run one cycle and exit")
     p.add_argument("--output", default=str(ARTIFACTS_DIR / "security_data.json"), help="Salida JSON cruda")
     p.add_argument("--normalized-output", default=str(ARTIFACTS_DIR / "security_data_normalized.json"), help="Salida JSON normalizada")
@@ -90,8 +90,13 @@ def main() -> None:
     log.info("Starting InsightVM Snapshot Agent...")
     log.info("\n%s", INSIGHTVM_BANNER)
 
-    env_path = Path(args.env)
-    load_dotenv(dotenv_path=env_path, override=True)
+    root_env = Path(__file__).resolve().parent.parent / ".env"
+    local_env = Path(__file__).resolve().parent / ".env"
+    load_dotenv(dotenv_path=root_env, override=False)
+    if args.env:
+        load_dotenv(dotenv_path=Path(args.env), override=True)
+    else:
+        load_dotenv(dotenv_path=local_env, override=False)
 
     general_cfg = load_general_settings()
     backend_cfg = load_backend_settings()
