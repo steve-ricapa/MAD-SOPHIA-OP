@@ -1,163 +1,486 @@
 # MAD-SOPHIA-OP
 
-Plataforma de integraciones de seguridad y monitoreo empaquetada en una sola imagen Docker.
+MAD de integraciones de seguridad y monitoreo para enviar snapshots al backend AWS/S3 de SOPHIA/XOC.
 
-## Estrategia de ejecucion
+## Integraciones
 
-- Unico servicio.
-- Sin orquestador adicional.
-- Configuracion por entorno en runtime con `--env-file .env`.
-- Imagen agnostica: no contiene secretos ni `.env`.
-
-## Integraciones incluidas
-
-- `wazuh`
+- `nessus`
+- `uptime_kuma`
 - `zabbix`
 - `openvas`
-- `insightvm`
-- `uptimekuma`
-- `nessus`
-
-## Requisitos
-
-- Docker Engine.
-- Conectividad de red hacia los endpoints de cada integracion.
-
-## Archivos clave
-
-- `Dockerfile`: imagen base para todas las integraciones.
-- `.env`: variables locales (no versionado).
-- `.env.example`: plantilla de variables sin secretos.
-- `app.py`: orquestador interno para ejecutar multiples integraciones.
-- `GUIA_LAPSOS_AGENTES.md`: referencia de lapsos/defaults.
-
-## Build
-
-```bash
-docker build -t app .
-```
-
-## Run (orquestador completo)
-
-```bash
-docker run -d --name mad_all --env-file .env -p 8000:8000 app
-```
-
-## Run (una integracion)
-
-Ejemplo Wazuh:
-
-```bash
-docker run -d --name mad_wazuh --env-file .env -p 8000:8000 -e AGENT_PATH=wazuh_integration/main.py app
-```
-
-Ejemplo Zabbix:
-
-```bash
-docker run -d --name mad_zabbix --env-file .env -e AGENT_PATH=zabix_integration/agent.py app
-```
-
-## Enviar Data Real Al Backend
-
-Para enviar data real al backend debes validar estas variables en tu `.env`:
-
-- `TXDXAI_INGEST_URL`
-- `TXDXAI_COMPANY_ID`
-- `TXDXAI_API_KEY_<INTEGRACION>`
-
-Ademas, cada integracion debe tener configurado su origen real:
-
-- `openvas`: `COLLECTOR=gmp` y variables `GVM_*`
-- `nessus`: `NESSUS_BASE_URL`, `NESSUS_ACCESS_KEY`, `NESSUS_SECRET_KEY`
-- `uptimekuma`: `UPTIME_KUMA_URL`
-- `zabbix`: `ZABBIX_API_URL`, `ZABBIX_USER`, `ZABBIX_PASS`
-- `wazuh`: `WAZUH_API_*`, `WAZUH_INDEXER_*`
-- `insightvm`: `INSIGHTVM_BASE_URL`, `INSIGHTVM_USER`, `INSIGHTVM_PASSWORD`
-
-## Flujo Recomendado Desde El Menu
-
-Si quieres probar una integracion y ver toda la data que consulta y arma antes de revisar el backend, usa el orquestador con modo diagnostico one-shot.
-
-Ejecucion local:
-
-```bash
-py -3 app.py --agents openvas --diagnostic-single-run true
-```
-
-Ejecucion en Docker:
-
-```bash
-docker run -it --rm --name mad_diag --env-file .env app python app.py --agents openvas --diagnostic-single-run true
-```
-
-Opciones del menu global:
-
-- `4`: Ejecutar pruebas de una integracion e iniciar luego los agentes seleccionados.
-- `5`: Ejecutar pruebas de una integracion y salir.
-
-Para inspeccionar una sola integracion, la opcion recomendada es `5`.
-
-Luego el menu te pedira la integracion a probar, por ejemplo:
-
-- `openvas`
-- `nessus`
-- `uptimekuma`
-- `zabbix`
 - `wazuh`
 - `insightvm`
 
-Con `--diagnostic-single-run true`, el orquestador ejecuta la integracion seleccionada en modo one-shot y deja artifacts para revisar lo que bajo del origen y lo que se preparo para enviar.
+## Backend AWS
 
-## Donde Ver La Data Generada
+Todas las integraciones enviadas a AWS usan el mismo flujo:
 
-Artifacts globales del diagnostico del orquestador:
+1. El agente hace `POST` a `TXDXAI_INGEST_URL` para pedir una URL prefirmada.
+2. El backend responde `upload_url`.
+3. El agente sube el snapshot completo con `PUT` a S3.
+4. AWS procesa el objeto desde S3.
 
-- `runtime/diagnostics/<timestamp>/diagnostic_report.json`
-- `runtime/diagnostics/<timestamp>/`
+`TXDXAI_INGEST_URL` debe apuntar a:
+
+```env
+TXDXAI_INGEST_URL=https://xvwg3cvl6b.execute-api.us-east-1.amazonaws.com/scans/upload-url
+```
+
+## Instalacion En Linux
+
+Desde cero:
+
+```bash
+cd /root/DESARROLLO
+git clone https://github.com/steve-ricapa/MAD-SOPHIA-OP.git
+cd /root/DESARROLLO/MAD-SOPHIA-OP
+python3 -m venv myenv
+source myenv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Si el repo ya existe:
+
+```bash
+cd /root/DESARROLLO/MAD-SOPHIA-OP
+git pull
+source myenv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+## Configuracion Del `.env`
+
+Usa un `.env` en la raiz del MAD:
+
+```bash
+cd /root/DESARROLLO/MAD-SOPHIA-OP
+nano .env
+```
+
+Recomendacion operativa: no uses `source .env` para la ejecucion normal. Los agentes cargan `.env` con `python-dotenv`. Esto evita problemas cuando un password contiene caracteres como `$`, `#`, `%` o `!`.
+
+Variables comunes:
+
+```env
+TXDXAI_INGEST_URL=https://xvwg3cvl6b.execute-api.us-east-1.amazonaws.com/scans/upload-url
+TXDXAI_TENANT_ID=7
+TXDXAI_COMPANY_ID=7
+OUTPUT_MODE=webhook
+MAD_VERSION=2.3.0
+SOURCE=mad-collector
+QUEUE_ENABLED=true
+```
+
+Agent API keys por integracion:
+
+```env
+TXDXAI_API_KEY_NESSUS=replace_me
+TXDXAI_API_KEY_UPTIMEKUMA=replace_me
+TXDXAI_API_KEY_ZABBIX=replace_me
+TXDXAI_API_KEY_WAZUH=replace_me
+TXDXAI_API_KEY_INSIGHTVM=replace_me
+TXDXAI_API_KEY_OPENVAS=replace_me
+```
+
+Recomendado separar colas para evitar payloads cruzados:
+
+```env
+NESSUS_QUEUE_DIR=runtime/nessus/queue
+UPTIME_QUEUE_DIR=runtime/uptimekuma/queue
+ZABBIX_QUEUE_DIR=runtime/zabbix/queue
+INSIGHTVM_QUEUE_DIR=runtime/insightvm/queue
+QUEUE_FLUSH_MAX=20
+```
+
+## Variables Por Integracion
+
+Nessus:
+
+```env
+NESSUS_BASE_URL=https://your-nessus:8834
+NESSUS_ACCESS_KEY=replace_me
+NESSUS_SECRET_KEY=replace_me
+NESSUS_VERIFY_SSL=false
+NESSUS_MAX_SCANS_PER_CYCLE=5
+```
+
+Uptime Kuma:
+
+```env
+UPTIME_KUMA_URL=https://your-uptime-kuma
+UPTIME_KUMA_METRICS_PATH=/metrics
+UPTIME_KUMA_USERNAME=admin
+UPTIME_KUMA_PASSWORD=replace_me
+VERIFY_SSL=true
+```
+
+Zabbix:
+
+```env
+ZABBIX_API_URL=https://your-zabbix/zabbix/api_jsonrpc.php
+ZABBIX_API_TOKEN=
+ZABBIX_USER=Admin
+ZABBIX_PASS=replace_me
+VERIFY_SSL=true
+```
+
+OpenVAS/GVM:
+
+```env
+OPENVAS_OUTPUT_MODE=http
+OPENVAS_COLLECTOR=gmp
+GVM_TRANSPORT=plain
+GVM_HOST=your-gvm-host
+GVM_PORT=9390
+GVM_USERNAME=admin
+GVM_PASSWORD=replace_me
+OPENVAS_DETAIL_LEVEL=findings
+```
+
+Wazuh:
+
+```env
+WAZUH_INDEXER_HOST=https://your-wazuh-indexer:9200
+WAZUH_INDEXER_USER=admin
+WAZUH_INDEXER_PASSWORD=replace_me
+WAZUH_INDEXER_VERIFY_TLS=false
+WAZUH_API_ENABLED=true
+WAZUH_API_HOST=https://your-wazuh-server:55000
+WAZUH_API_USER=replace_me
+WAZUH_API_PASSWORD=replace_me
+WAZUH_API_VERIFY_TLS=false
+MIN_RULE_LEVEL=7
+STARTUP_MENU_ENABLED=true
+STARTUP_MENU_DEFAULT_OPTION=1
+STARTUP_REQUIRE_ALL_TESTS=false
+```
+
+InsightVM:
+
+```env
+INSIGHTVM_BASE_URL=https://your-insightvm:3780/api/3
+INSIGHTVM_USER=replace_me
+INSIGHTVM_PASSWORD=replace_me
+INSIGHTVM_TIMEOUT=30
+INSIGHTVM_VERIFY_SSL=false
+```
+
+Nota InsightVM: `INSIGHTVM_BASE_URL` debe incluir `/api/3`. Si `/assets?page=0&size=50` da timeout, prueba con `--page-size 1`, `5` o `10`.
+
+## Entrypoints
+
+| Integracion | Comando |
+|---|---|
+| Nessus | `python3 nessus_integration/agent.py` |
+| Uptime Kuma | `python3 uptimekuma_integration/agent.py` |
+| Zabbix | `python3 zabix_integration/agent.py` |
+| OpenVAS | `python3 openVAS_integration/main.py` |
+| Wazuh | `python3 wazuh_integration/main.py` |
+| InsightVM | `python3 insightVM_integration/main.py` |
+
+Usa `--once` para un solo ciclo. Sin `--once`, el agente queda corriendo en modo servicio.
+
+## Correr Uno Por Uno
+
+Activa el entorno y corre siempre desde la raiz:
+
+```bash
+cd /root/DESARROLLO/MAD-SOPHIA-OP
+source myenv/bin/activate
+```
+
+Nessus:
+
+```bash
+python3 nessus_integration/agent.py --once 2>&1 | tee run_once_nessus.log
+```
+
+Uptime Kuma:
+
+```bash
+python3 uptimekuma_integration/agent.py --once 2>&1 | tee run_once_uptimekuma.log
+```
+
+Zabbix:
+
+```bash
+python3 zabix_integration/agent.py --once 2>&1 | tee run_once_zabbix.log
+```
+
+OpenVAS:
+
+```bash
+python3 openVAS_integration/main.py --once 2>&1 | tee run_once_openvas.log
+```
+
+Wazuh:
+
+```bash
+STARTUP_REQUIRE_ALL_TESTS=false python3 wazuh_integration/main.py --once 2>&1 | tee run_once_wazuh.log
+```
+
+InsightVM:
+
+```bash
+python3 insightVM_integration/main.py --once --page-size 1 --insight-timeout 30 2>&1 | tee run_once_insightvm.log
+```
+
+## Correr En Modo Servicio
+
+Quita `--once`.
+
+Ejemplo Nessus:
+
+```bash
+cd /root/DESARROLLO/MAD-SOPHIA-OP
+source myenv/bin/activate
+python3 nessus_integration/agent.py
+```
+
+Ejemplo InsightVM:
+
+```bash
+cd /root/DESARROLLO/MAD-SOPHIA-OP
+source myenv/bin/activate
+python3 insightVM_integration/main.py --page-size 1 --insight-timeout 30
+```
+
+## Correr Todos A La Vez
+
+Sin orquestador global, corre cada agente como proceso separado:
+
+```bash
+cd /root/DESARROLLO/MAD-SOPHIA-OP
+source myenv/bin/activate
+mkdir -p runtime/logs
+
+nohup python3 nessus_integration/agent.py > runtime/logs/nessus.log 2>&1 &
+nohup python3 uptimekuma_integration/agent.py > runtime/logs/uptimekuma.log 2>&1 &
+nohup python3 zabix_integration/agent.py > runtime/logs/zabbix.log 2>&1 &
+nohup python3 openVAS_integration/main.py > runtime/logs/openvas.log 2>&1 &
+nohup env STARTUP_REQUIRE_ALL_TESTS=false python3 wazuh_integration/main.py > runtime/logs/wazuh.log 2>&1 &
+nohup python3 insightVM_integration/main.py --page-size 1 --insight-timeout 30 > runtime/logs/insightvm.log 2>&1 &
+```
+
+Ver procesos:
+
+```bash
+ps -ef | grep -E "nessus|uptimekuma|zabix|openVAS|wazuh|insightVM"
+```
+
+Ver logs:
+
+```bash
+tail -f runtime/logs/nessus.log
+tail -f runtime/logs/uptimekuma.log
+tail -f runtime/logs/zabbix.log
+tail -f runtime/logs/openvas.log
+tail -f runtime/logs/wazuh.log
+tail -f runtime/logs/insightvm.log
+```
+
+Detener procesos manualmente:
+
+```bash
+pkill -f "nessus_integration/agent.py"
+pkill -f "uptimekuma_integration/agent.py"
+pkill -f "zabix_integration/agent.py"
+pkill -f "openVAS_integration/main.py"
+pkill -f "wazuh_integration/main.py"
+pkill -f "insightVM_integration/main.py"
+```
+
+## Logs Y Artifacts
+
+Logs generados con `tee`:
+
+```text
+run_once_nessus.log
+run_once_uptimekuma.log
+run_once_zabbix.log
+run_once_openvas.log
+run_once_wazuh.log
+run_once_insightvm.log
+```
+
+Logs de procesos `nohup`:
+
+```text
+runtime/logs/nessus.log
+runtime/logs/uptimekuma.log
+runtime/logs/zabbix.log
+runtime/logs/openvas.log
+runtime/logs/wazuh.log
+runtime/logs/insightvm.log
+```
 
 Artifacts por integracion:
 
-- `openvas`: `runtime/openvas/artifacts/`
-- `nessus`: `runtime/nessus/`
-- `uptimekuma`: `runtime/uptimekuma/`
-- `zabbix`: `runtime/zabbix/`
-- `wazuh`: `runtime/wazuh/artifacts/`
-- `insightvm`: `runtime/insightvm/`
-
-Archivos principales a revisar:
-
-- raw del origen
-- `debug_report.json` o `last_report_built.json`
-- `last_payload_sent.json`
-- `last_delivery_meta.json`
-
-## OpenVAS Y Estados
-
-OpenVAS ahora normaliza estados terminales antes del envio al backend:
-
-- `Done` -> `completed`
-- `Completed` -> `completed`
-- `Running` -> `running`
-- `Pending` -> `pending`
-
-Ademas, OpenVAS ya no marca como enviado un reporte que siga `running` o `pending`. Eso evita que se registre una sola vez con estado incorrecto y nunca vuelva a reenviarse cuando termine.
-
-## Guia Detallada De Artifacts
-
-Para comandos por integracion y ubicaciones exactas de archivos, revisa tambien:
-
-- `INTEGRATION_ARTIFACTS_GUIDE.md`
-
-## Logs y estado
-
-```bash
-docker logs -f mad_all
-docker ps
+```text
+runtime/nessus/
+runtime/uptimekuma/
+runtime/zabbix/
+runtime/openvas/artifacts/
+runtime/wazuh/artifacts/
+runtime/insightvm/
 ```
 
-## Buenas practicas
+Wazuh guarda logs JSON adicionales:
 
-- No subir secretos reales al repo.
+```text
+runtime/wazuh/artifacts/logs/agent_console.json
+runtime/wazuh/artifacts/logs/startup_precheck.json
+runtime/wazuh/artifacts/raw_batches/
+runtime/wazuh/artifacts/payloads/
+runtime/wazuh/artifacts/failed_payloads/
+```
+
+Archivos comunes utiles:
+
+```text
+state.json
+debug_report.json
+last_payload_sent.json
+last_delivery_meta.json
+raw_scans_snapshot.json
+raw_monitors_snapshot.json
+last_report_built.json
+queue/*.json
+```
+
+## Forzar Envio De Snapshot
+
+Usalo solo para pruebas. Puede enviar snapshots sin cambios.
+
+Nessus:
+
+```bash
+NESSUS_SNAPSHOT_ALWAYS_SEND=true python3 nessus_integration/agent.py --once
+```
+
+Uptime Kuma:
+
+```bash
+UPTIME_SNAPSHOT_ALWAYS_SEND=true python3 uptimekuma_integration/agent.py --once
+```
+
+Zabbix:
+
+```bash
+ZABBIX_SNAPSHOT_ALWAYS_SEND=true python3 zabix_integration/agent.py --once
+```
+
+OpenVAS:
+
+```bash
+OPENVAS_SNAPSHOT_ALWAYS_SEND=true python3 openVAS_integration/main.py --once
+```
+
+Wazuh:
+
+```bash
+WAZUH_SNAPSHOT_ALWAYS_SEND=true STARTUP_REQUIRE_ALL_TESTS=false python3 wazuh_integration/main.py --once
+```
+
+InsightVM:
+
+```bash
+INSIGHTVM_SNAPSHOT_ALWAYS_SEND=true python3 insightVM_integration/main.py --once --page-size 1 --insight-timeout 30
+```
+
+## Validacion Esperada
+
+Envio correcto suele verse asi:
+
+```text
+Data ingestion completed.
+sent=True queued=False
+```
+
+OpenVAS muestra:
+
+```text
+OK backend upload_url (200) + s3 (200)
+```
+
+Nessus muestra:
+
+```text
+[SUCCESS] Data ingestion completed.
+Report prepared | scans=... findings=... sent=True queued=False
+```
+
+InsightVM correcto con pagina chica:
+
+```text
+Fin de paginacion para /assets
+Total de definiciones de vulnerabilidades obtenidas: ...
+Report sent | findings=... sent=True queued=False
+```
+
+## Troubleshooting
+
+`No backend URL configured. Skipping delivery.`:
+
+```text
+Falta TXDXAI_INGEST_URL o el agente no esta leyendo el .env correcto.
+Ejecuta desde la raiz del repo y verifica .env.
+```
+
+`NESSUS_BASE_URL es requerido.`:
+
+```text
+Falta NESSUS_BASE_URL en .env o estas ejecutando con variables no cargadas.
+```
+
+InsightVM timeout en `/assets`:
+
+```text
+Prueba --page-size 1 --insight-timeout 30.
+Si page-size 50 falla y page-size 1 funciona, InsightVM responde lento con paginas grandes.
+```
+
+Wazuh precheck falla pero el Indexer responde:
+
+```text
+Usa STARTUP_REQUIRE_ALL_TESTS=false para no abortar por prechecks no criticos.
+```
+
+Warnings `InsecureRequestWarning`:
+
+```text
+No son error. Indican VERIFY_SSL=false o TLS desactivado. En produccion usa certificados validos si aplica.
+```
+
+Cola cruzada o error de scanner type/API key:
+
+```text
+Separa QUEUE_DIR por integracion y limpia colas antiguas si tienen payloads de otra integracion.
+```
+
+## Tests
+
+Desde la raiz:
+
+```bash
+python -m pytest "nessus_integration/tests" "zabix_integration/tests" "uptimekuma_integration/tests" "openVAS_integration/tests" "wazuh_integration/tests"
+```
+
+InsightVM tiene tests con rootdir propio:
+
+```bash
+cd /root/DESARROLLO/MAD-SOPHIA-OP/insightVM_integration
+python -m pytest tests
+```
+
+## Docker
+
+El `Dockerfile` actual referencia `app.py`, pero `app.py` no existe en este repo. Por ahora usa ejecucion directa en Linux con venv y entrypoints por integracion.
+
+## Buenas Practicas
+
+- No subir `.env` ni secretos al repo.
 - Versionar solo `.env.example`.
-- Rotar credenciales si alguna se expuso.
-- Mantener runtime artifacts fuera de git.
+- Rotar credenciales si fueron expuestas en logs, chats o commits.
+- Mantener `runtime/`, logs, colas y artifacts fuera de git.
