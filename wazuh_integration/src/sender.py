@@ -154,6 +154,14 @@ class Sender:
         idempotency_key = report.get("idempotency_key")
         if idempotency_key:
             upload_request["idempotency_key"] = idempotency_key
+        logger.info(
+            "Requesting upload-url | scan_id={} | idempotency_key={} | tenant_id={} | scanner_type={} | endpoint={}",
+            report.get("scan_id"),
+            idempotency_key,
+            tenant_id,
+            upload_request["scanner_type"],
+            self.ingest_url,
+        )
 
         timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -196,6 +204,15 @@ class Sender:
                                 logger.error("Backend upload-url response missing upload_url")
                                 return False
 
+                            logger.info(
+                                "Upload-url received | scan_id={} | status={} | upload_id={} | s3_key={} | expires_in_seconds={}",
+                                report.get("scan_id"),
+                                resp.status,
+                                upload_response.get("upload_id") or upload_response.get("uploadId"),
+                                upload_response.get("s3_key") or upload_response.get("s3Key"),
+                                upload_response.get("expires_in_seconds") or upload_response.get("expiresInSeconds"),
+                            )
+
                             body = json.dumps(report, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
                             async with session.put(
                                 upload_url,
@@ -209,7 +226,8 @@ class Sender:
                                 if 200 <= put_resp.status < 300:
                                     self.last_failure_kind = None
                                     logger.info(
-                                        "Report uploaded successfully | upload_url_status={} | s3_status={} | attempt={}/{}",
+                                        "Report uploaded successfully | scan_id={} | upload_url_status={} | s3_status={} | attempt={}/{}",
+                                        report.get("scan_id"),
                                         resp.status,
                                         put_resp.status,
                                         attempt + 1,

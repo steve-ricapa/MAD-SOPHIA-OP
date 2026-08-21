@@ -1,8 +1,14 @@
-from opensearchpy import AsyncOpenSearch
 from loguru import logger
+
+try:
+    from opensearchpy import AsyncOpenSearch
+except ModuleNotFoundError:  # pragma: no cover - depends on optional runtime dependency
+    AsyncOpenSearch = None
 
 class IndexerClient:
     def __init__(self, host, user, password, verify_certs=False):
+        if AsyncOpenSearch is None:
+            raise RuntimeError("opensearchpy is required to use IndexerClient")
         self.host = host
         self.verify_certs = verify_certs
         self.last_error = None

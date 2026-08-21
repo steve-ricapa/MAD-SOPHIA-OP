@@ -67,16 +67,16 @@ def _resolve_path(base_dir: Path, raw_path: str, fallback_name: str) -> Path:
 
 
 def load_config() -> Config:
-    load_dotenv()
     base_dir = Path(__file__).resolve().parent
     root_dir = base_dir.parent
+    load_dotenv(root_dir / ".env", override=True)
 
     uptime_kuma_url = os.getenv("UPTIME_KUMA_URL", "").strip()
     metrics_path = os.getenv("UPTIME_KUMA_METRICS_PATH", "/metrics").strip()
 
-    output_mode = (os.getenv("UPTIME_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "stdout").strip().lower()
+    output_mode = (os.getenv("UPTIME_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "all").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
-    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "8"))
     tenant_id = int(os.getenv("TXDXAI_TENANT_ID") or company_id)
     api_key = (
         os.getenv("TXDXAI_API_KEY_UPTIMEKUMA")
@@ -104,7 +104,7 @@ def load_config() -> Config:
     last_payload_raw = os.getenv("LAST_PAYLOAD_PATH", "last_payload_sent.json")
     delivery_meta_raw = os.getenv("UPTIME_DELIVERY_META_PATH") or os.getenv("DELIVERY_META_PATH", "last_delivery_meta.json")
     raw_snapshot_raw = os.getenv("UPTIME_RAW_SNAPSHOT_PATH") or os.getenv("RAW_SNAPSHOT_PATH", "raw_monitors_snapshot.json")
-    queue_dir_raw = os.getenv("UPTIME_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
+    queue_dir_raw = os.getenv("UPTIME_QUEUE_DIR") or os.getenv("QUEUE_DIR", "runtime/uptimekuma/queue")
 
     mad_version = (os.getenv("MAD_VERSION") or "2.3.0").strip()
     integration_version = (os.getenv("UPTIMEKUMA_INTEGRATION_VERSION") or os.getenv("INTEGRATION_VERSION", "1.0.0")).strip()
@@ -122,7 +122,7 @@ def load_config() -> Config:
     last_payload_path = _resolve_path(artifacts_dir, last_payload_raw, "last_payload_sent.json")
     delivery_meta_path = _resolve_path(artifacts_dir, delivery_meta_raw, "last_delivery_meta.json")
     raw_snapshot_path = _resolve_path(artifacts_dir, raw_snapshot_raw, "raw_monitors_snapshot.json")
-    queue_dir = _resolve_path(artifacts_dir, queue_dir_raw, "queue")
+    queue_dir = _resolve_path(root_dir, queue_dir_raw, "runtime/uptimekuma/queue")
 
     kuma_db_path: Optional[Path] = None
     if kuma_db_raw and kuma_db_raw.strip():

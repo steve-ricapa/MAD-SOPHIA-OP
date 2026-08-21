@@ -51,7 +51,7 @@ python -m pip install -r requirements.txt
 
 ## Configuracion Del `.env`
 
-Usa un `.env` en la raiz del MAD:
+Usa un `.env` en la raiz del MAD. Esa es la unica fuente oficial de configuracion para produccion:
 
 ```bash
 cd /root/DESARROLLO/MAD-SOPHIA-OP
@@ -64,12 +64,13 @@ Variables comunes:
 
 ```env
 TXDXAI_INGEST_URL=https://xvwg3cvl6b.execute-api.us-east-1.amazonaws.com/scans/upload-url
-TXDXAI_TENANT_ID=7
-TXDXAI_COMPANY_ID=7
-OUTPUT_MODE=webhook
+TXDXAI_TENANT_ID=8
+TXDXAI_COMPANY_ID=8
+OUTPUT_MODE=all
 MAD_VERSION=2.3.0
 SOURCE=mad-collector
 QUEUE_ENABLED=true
+QUEUE_FLUSH_MAX=20
 ```
 
 Agent API keys por integracion:
@@ -180,6 +181,23 @@ Nota InsightVM: `INSIGHTVM_BASE_URL` debe incluir `/api/3`. Si `/assets?page=0&s
 | InsightVM | `python3 insightVM_integration/main.py` |
 
 Usa `--once` para un solo ciclo. Sin `--once`, el agente queda corriendo en modo servicio.
+
+## Troubleshooting AWS Upload
+
+Flujo esperado por integracion:
+
+1. `POST /scans/upload-url`
+2. backend responde `upload_url`
+3. agente hace `PUT` del snapshot a S3 con `Content-Type: application/json`
+
+Errores tipicos:
+
+- `403` en `POST /scans/upload-url`: `tenant_id`, `api_key` o permiso incorrecto.
+- `400` en `POST /scans/upload-url`: request invalido o falta `scanner_type` / `idempotency_key` esperado.
+- `403` o `400` en `PUT` a S3: presigned URL expirada o payload subido con headers incorrectos.
+- `409` en upload-url: snapshot ya aceptado antes; se trata como idempotencia exitosa.
+
+Cada agente debe dejar en logs: `scan_id`, `idempotency_key`, `tenant_id`, `scanner_type`, `upload_url status`, `PUT status` y, si viene en la respuesta, `upload_id`, `s3_key`, `expires_in_seconds`.
 
 ## Correr Uno Por Uno
 

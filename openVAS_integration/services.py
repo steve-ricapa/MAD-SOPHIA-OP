@@ -736,6 +736,12 @@ def emit_payload(
         if idem_key:
             upload_request["idempotency_key"] = idem_key
 
+        print(
+            f"[{_now()}] upload-url request "
+            f"scan_id={payload.get('scan_id')} idempotency_key={idem_key} "
+            f"tenant_id={resolved_tenant_id} scanner_type={upload_request['scanner_type']} endpoint={url}"
+        )
+
         if not tls_verify:
             try:
                 import urllib3  # type: ignore
@@ -766,6 +772,13 @@ def emit_payload(
             if not upload_url:
                 raise RuntimeError("Backend no devolvio upload_url")
 
+            print(
+                f"[{_now()}] upload-url response status={r.status_code} "
+                f"upload_id={upload_response.get('upload_id') or upload_response.get('uploadId')} "
+                f"s3_key={upload_response.get('s3_key') or upload_response.get('s3Key')} "
+                f"expires_in_seconds={upload_response.get('expires_in_seconds') or upload_response.get('expiresInSeconds')}"
+            )
+
             put_response = requests.put(
                 upload_url,
                 data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
@@ -774,7 +787,10 @@ def emit_payload(
                 verify=tls_verify,
             )
             if 200 <= put_response.status_code < 300:
-                print(f"[{_now()}] OK backend upload_url ({r.status_code}) + s3 ({put_response.status_code})")
+                print(
+                    f"[{_now()}] OK backend upload_url ({r.status_code}) + s3 ({put_response.status_code}) "
+                    f"scan_id={payload.get('scan_id')}"
+                )
                 return True
             snippet = (put_response.text or "")[:300]
             raise RuntimeError(f"S3 rechazo snapshot: HTTP {put_response.status_code}. Respuesta: {snippet}")

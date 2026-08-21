@@ -70,9 +70,9 @@ def load_config() -> Config:
     hours = int(os.getenv("ZABBIX_HOURS") or os.getenv("HOURS", "24"))
 
     # Backend TxDxAI
-    output_mode = (os.getenv("ZABBIX_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "stdout").strip().lower()
+    output_mode = (os.getenv("ZABBIX_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "all").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
-    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "8"))
     tenant_id = int(os.getenv("TXDXAI_TENANT_ID") or company_id)
     api_key = (
         os.getenv("TXDXAI_API_KEY_ZABBIX")
@@ -116,7 +116,7 @@ def load_config() -> Config:
         os.getenv("ZABBIX_QUEUE_FLUSH_MAX")
         or os.getenv("QUEUE_FLUSH_MAX", "20")
     )
-    queue_dir_raw = os.getenv("ZABBIX_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
+    queue_dir_raw = os.getenv("ZABBIX_QUEUE_DIR") or os.getenv("QUEUE_DIR", "runtime/zabbix/queue")
 
     artifacts_dir = _resolve_path(root_dir, artifacts_dir_raw, "runtime/zabbix")
     state_path = _resolve_path(artifacts_dir, state_raw, "state.json")
@@ -124,7 +124,7 @@ def load_config() -> Config:
     last_payload_path = _resolve_path(artifacts_dir, last_payload_raw, "last_payload_sent.json")
     delivery_meta_path = _resolve_path(artifacts_dir, delivery_meta_raw, "last_delivery_meta.json")
     raw_snapshot_path = _resolve_path(artifacts_dir, raw_snapshot_raw, "raw_snapshot.json")
-    queue_dir = _resolve_path(artifacts_dir, queue_dir_raw, "queue")
+    queue_dir = _resolve_path(root_dir, queue_dir_raw, "runtime/zabbix/queue")
 
     if not api_url:
         raise SystemExit("Falta ZABBIX_API_URL.")

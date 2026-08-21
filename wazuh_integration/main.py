@@ -541,7 +541,7 @@ async def poll_agents(api, aggregator, state, single_run=False):
         if single_run:
             logger.info("Single-run mode: poll_agents completed one cycle.")
             break
-        await asyncio.sleep(int(os.getenv("POLL_INTERVAL_AGENTS", 60)))
+        await asyncio.sleep(int(os.getenv("WAZUH_POLL_INTERVAL_AGENTS") or os.getenv("POLL_INTERVAL_AGENTS", 60)))
 
 from aiohttp import web
 
@@ -556,9 +556,9 @@ async def main():
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
     args = parser.parse_args()
 
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
-    company_id = int(os.getenv("TXDXAI_COMPANY_ID", 0))
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID", 8))
     tenant_id = int(os.getenv("TXDXAI_TENANT_ID", company_id))
     api_key = (
         os.getenv("TXDXAI_API_KEY_WAZUH")
@@ -576,10 +576,10 @@ async def main():
     api_enabled = parse_bool(os.getenv("WAZUH_API_ENABLED"), default=True)
     ingest_url = os.getenv("TXDXAI_INGEST_URL")
     health_port = int(os.getenv("HEALTH_CHECK_PORT", 8000))
-    checkpoint_file = os.getenv("CHECKPOINT_FILE", "state/agent_state.db")
+    checkpoint_file = os.getenv("WAZUH_CHECKPOINT_FILE") or os.getenv("CHECKPOINT_FILE", "state/agent_state.db")
 
     runtime_dir = Path(__file__).resolve().parent.parent / "runtime" / "wazuh"
-    artifacts_dir = resolve_path(runtime_dir, os.getenv("ARTIFACTS_DIR", "artifacts"))
+    artifacts_dir = resolve_path(runtime_dir, os.getenv("WAZUH_ARTIFACTS_DIR") or os.getenv("ARTIFACTS_DIR", "artifacts"))
     raw_dir = artifacts_dir / "raw_batches"
     payload_dir = artifacts_dir / "payloads"
     failed_dir = artifacts_dir / "failed_payloads"
@@ -597,10 +597,10 @@ async def main():
     source = (os.getenv("SOURCE") or "mad-collector").strip()
 
     app_cfg = {
-        "poll_interval_alerts": int(os.getenv("POLL_INTERVAL_ALERTS", 30)),
+        "poll_interval_alerts": int(os.getenv("WAZUH_POLL_INTERVAL_ALERTS") or os.getenv("POLL_INTERVAL_ALERTS", 30)),
         "initial_lookback_hours": int(os.getenv("INITIAL_LOOKBACK_HOURS", 2)),
         "alert_batch_size": int(os.getenv("ALERT_BATCH_SIZE", 500)),
-        "retry_failed_interval_seconds": int(os.getenv("RETRY_FAILED_INTERVAL_SECONDS", 30)),
+        "retry_failed_interval_seconds": int(os.getenv("WAZUH_RETRY_FAILED_INTERVAL_SECONDS") or os.getenv("RETRY_FAILED_INTERVAL_SECONDS", 30)),
         "min_rule_level": int(os.getenv("MIN_RULE_LEVEL", 7)),
         "force_send_every_cycles": force_send_every_cycles,
         "snapshot_always_send": snapshot_always_send,

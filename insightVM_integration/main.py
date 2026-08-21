@@ -91,12 +91,9 @@ def main() -> None:
     log.info("\n%s", INSIGHTVM_BANNER)
 
     root_env = Path(__file__).resolve().parent.parent / ".env"
-    local_env = Path(__file__).resolve().parent / ".env"
-    load_dotenv(dotenv_path=root_env, override=False)
+    load_dotenv(dotenv_path=root_env, override=True)
     if args.env:
         load_dotenv(dotenv_path=Path(args.env), override=True)
-    else:
-        load_dotenv(dotenv_path=local_env, override=False)
 
     general_cfg = load_general_settings()
     backend_cfg = load_backend_settings()
@@ -109,6 +106,9 @@ def main() -> None:
             execute_run(args, log, general_cfg, backend_cfg, state_manager)
         except Exception as e:
             log.error("Cycle failure: %s", e)
+            if args.once:
+                log.error("Single-run mode failed. Exiting.")
+                raise
             time.sleep(5)
             continue
 

@@ -83,12 +83,12 @@ def _resolve_path(base_dir: Path, raw_path: str, fallback_name: str) -> Path:
 
 
 def load_backend_settings() -> BackendSettings:
-    base_dir = Path(__file__).resolve().parent
+    repo_root = Path(__file__).resolve().parents[2]
 
-    queue_dir_raw = os.getenv("INSIGHTVM_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
-    queue_dir = _resolve_path(base_dir, queue_dir_raw, "queue")
+    queue_dir_raw = os.getenv("INSIGHTVM_QUEUE_DIR") or os.getenv("QUEUE_DIR", "runtime/insightvm/queue")
+    queue_dir = _resolve_path(repo_root, queue_dir_raw, "runtime/insightvm/queue")
 
-    company_id = int(os.getenv("TXDXAI_COMPANY_ID", "1"))
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID", "8"))
 
     return BackendSettings(
         url=os.getenv("TXDXAI_INGEST_URL"),
@@ -127,8 +127,11 @@ def load_backend_settings() -> BackendSettings:
 
 
 def load_general_settings() -> GeneralSettings:
+    repo_root = Path(__file__).resolve().parents[2]
+    state_file_raw = (os.getenv("INSIGHTVM_STATE_FILE") or os.getenv("STATE_FILE") or "runtime/insightvm/state.json").strip()
+    state_file = str(_resolve_path(repo_root, state_file_raw, "runtime/insightvm/state.json"))
     return GeneralSettings(
-        state_file=os.getenv("STATE_FILE", "state.json"),
-        interval=int(os.getenv("INTERVAL", "60")),
-        event_type=(os.getenv("EVENT_TYPE") or "vuln_scan_report").strip(),
+        state_file=state_file,
+        interval=int(os.getenv("INSIGHTVM_INTERVAL_SECONDS") or os.getenv("INTERVAL", "60")),
+        event_type=(os.getenv("INSIGHTVM_EVENT_TYPE") or os.getenv("EVENT_TYPE") or "vuln_scan_report").strip(),
     )

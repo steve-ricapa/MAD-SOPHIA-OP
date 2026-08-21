@@ -79,17 +79,16 @@ def _parse_scan_ids(raw: Optional[str]) -> Optional[set[int]]:
 def load_config() -> Config:
     base_dir = Path(__file__).resolve().parent
     root_dir = base_dir.parent
-    load_dotenv(root_dir / ".env", override=False)
-    load_dotenv(base_dir / ".env", override=False)
+    load_dotenv(root_dir / ".env", override=True)
 
     nessus_base_url = os.getenv("NESSUS_BASE_URL", "").strip()
     nessus_access_key = os.getenv("NESSUS_ACCESS_KEY", "").strip()
     nessus_secret_key = os.getenv("NESSUS_SECRET_KEY", "").strip()
     verify_ssl = _env_bool("NESSUS_VERIFY_SSL", False)
 
-    output_mode = (os.getenv("NESSUS_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "stdout").strip().lower()
+    output_mode = (os.getenv("NESSUS_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "all").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
-    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "1"))
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "8"))
     tenant_id = int(os.getenv("TXDXAI_TENANT_ID") or company_id)
     api_key = (
         os.getenv("TXDXAI_API_KEY_NESSUS")
@@ -120,7 +119,7 @@ def load_config() -> Config:
     mad_version = (os.getenv("MAD_VERSION") or "2.3.0").strip()
     integration_version = (os.getenv("NESSUS_INTEGRATION_VERSION") or os.getenv("INTEGRATION_VERSION", "1.0.0")).strip()
     source = (os.getenv("SOURCE") or "mad-collector").strip()
-    queue_dir_raw = os.getenv("NESSUS_QUEUE_DIR") or os.getenv("QUEUE_DIR", "queue")
+    queue_dir_raw = os.getenv("NESSUS_QUEUE_DIR") or os.getenv("QUEUE_DIR", "runtime/nessus/queue")
 
     scan_ids_filter = _parse_scan_ids(os.getenv("NESSUS_SCAN_IDS"))
     folder_raw = os.getenv("NESSUS_FOLDER_ID", "").strip()
@@ -132,7 +131,7 @@ def load_config() -> Config:
     last_payload_path = _resolve_path(artifacts_dir, last_payload_raw, "last_payload_sent.json")
     delivery_meta_path = _resolve_path(artifacts_dir, delivery_meta_raw, "last_delivery_meta.json")
     raw_snapshot_path = _resolve_path(artifacts_dir, raw_snapshot_raw, "raw_scans_snapshot.json")
-    queue_dir = _resolve_path(artifacts_dir, queue_dir_raw, "queue")
+    queue_dir = _resolve_path(root_dir, queue_dir_raw, "runtime/nessus/queue")
 
     if not nessus_base_url:
         raise SystemExit("NESSUS_BASE_URL es requerido.")

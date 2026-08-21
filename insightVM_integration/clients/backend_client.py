@@ -17,6 +17,11 @@ log = logging.getLogger("clients.backend")
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
+def _log_delivery(stage: str, **fields: Any) -> None:
+    fields_str = " | ".join(f"{key}={value}" for key, value in fields.items() if value not in (None, ""))
+    log.info("%s%s", stage, f" | {fields_str}" if fields_str else "")
+
+
 class PermanentDeliveryError(RuntimeError):
     pass
 
@@ -120,6 +125,16 @@ class BackendClient:
 
         last_error: Optional[Exception] = None
         max_attempts = max(retries, 1)
+        scan_id = payload.get("scan_id")
+
+        _log_delivery(
+            "request_upload_url",
+            scan_id=scan_id,
+            idempotency_key=idempotency_key,
+            tenant_id=resolved_tenant_id,
+            scanner_type=scanner_type,
+            endpoint=self.ingest_url,
+        )
 
         for attempt in range(1, max_attempts + 1):
             try:
@@ -142,6 +157,15 @@ class BackendClient:
                     if not upload_url:
                         raise PermanentDeliveryError("Upload URL response does not include upload_url")
 
+                    _log_delivery(
+                        "upload_url_response",
+                        scan_id=scan_id,
+                        status=response.status_code,
+                        upload_id=upload_response.get("upload_id") or upload_response.get("uploadId"),
+                        s3_key=upload_response.get("s3_key") or upload_response.get("s3Key"),
+                        expires_in_seconds=upload_response.get("expires_in_seconds") or upload_response.get("expiresInSeconds"),
+                    )
+
                     put_response = self.session.put(
                         upload_url,
                         data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
@@ -150,6 +174,7 @@ class BackendClient:
                         verify=self.verify_ssl,
                     )
                     if 200 <= put_response.status_code < 300:
+                        _log_delivery("put_snapshot", scan_id=scan_id, status=put_response.status_code)
                         return
                     put_snippet = (put_response.text or "")[:300]
                     if put_response.status_code in RETRYABLE_STATUS_CODES:
