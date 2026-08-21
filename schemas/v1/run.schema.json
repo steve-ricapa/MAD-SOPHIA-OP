@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.txdxsecure.com/etl/v1/run.schema.json",
+  "title": "Extraction run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "status",
+    "started_at",
+    "ended_at",
+    "collection_window",
+    "partial",
+    "record_counts",
+    "error_counts"
+  ],
+  "properties": {
+    "run_id": {
+      "$ref": "common.schema.json#/$defs/identifier"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "partial", "failed", "cancelled"]
+    },
+    "started_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "ended_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "collection_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "end": { "$ref": "common.schema.json#/$defs/timestamp" }
+      }
+    },
+    "partial": {
+      "type": "boolean"
+    },
+    "record_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assets", "observations", "findings", "detections", "accepted", "rejected", "quarantined"],
+      "properties": {
+        "assets": { "type": "integer", "minimum": 0 },
+        "observations": { "type": "integer", "minimum": 0 },
+        "findings": { "type": "integer", "minimum": 0 },
+        "detections": { "type": "integer", "minimum": 0 },
+        "accepted": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0 },
+        "quarantined": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "error_counts": {
+      "type": "object",
+      "maxProperties": 50,
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  }
+}

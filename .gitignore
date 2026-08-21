@@ -56,3 +56,20 @@ nessus_integration/raw_scans_snapshot.json
 wazuh_integration/artifacts/
 wazuh_integration/debug_output/
 wazuh_integration/state/*.db
+
+# Generated runtime data and delivery artifacts
+runtime/
+**/queue/
+**/state*.json
+**/temp_state.json
+*.lock
+*.tar.gz
+**/diagnostic_report*.json
+**/debug_report*.json
+**/last_payload_sent.json
+**/last_delivery_meta.json
+**/raw_*_snapshot.json
+**/security_data*.json
+**/assets_table.csv
+**/assets_table.json
+todos_los_*.json

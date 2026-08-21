@@ -1,0 +1,52 @@
+{
+  "record_type": "finding",
+  "record_id": "record:sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "asset_id": "asset:sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "source_object_id": "nessus-plugin-19506",
+  "title": "Example vulnerability",
+  "status": "open",
+  "severity": "high",
+  "source_severity": 3,
+  "first_seen_at": "2026-08-21T14:00:00Z",
+  "last_seen_at": "2026-08-21T15:00:00Z",
+  "identifiers": [
+    {
+      "type": "cve",
+      "value": "CVE-2026-0001"
+    },
+    {
+      "type": "plugin",
+      "value": "19506"
+    }
+  ],
+  "scores": [
+    {
+      "system": "cvss",
+      "version": "3.1",
+      "score": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "source": "nessus"
+    }
+  ],
+  "endpoint": {
+    "hostname": "server.example.test",
+    "port": 443,
+    "protocol": "tcp"
+  },
+  "description": "An anonymized finding used to validate the canonical contract.",
+  "remediation": "Apply the vendor update after change validation.",
+  "occurrence_count": 1,
+  "decision": {
+    "outcome": "accepted",
+    "reason_code": "finding.high_severity",
+    "policy_version": "1.0.0",
+    "decided_at": "2026-08-21T15:00:01Z"
+  },
+  "provenance": {
+    "connector_version": "1.0.0",
+    "mapping_version": "1.0.0",
+    "policy_version": "1.0.0",
+    "collected_at": "2026-08-21T15:00:00Z",
+    "raw_record_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  }
+}

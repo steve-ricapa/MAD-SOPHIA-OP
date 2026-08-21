@@ -1,0 +1,14 @@
+# HELP monitor_status Monitor Status (0 = DOWN, 1 = UP, 2 = PENDING, 3 = MAINTENANCE).
+# TYPE monitor_status gauge
+monitor_status{monitor_id="42",monitor_name="Public API",monitor_type="http",monitor_url="https://api.example.test/health",monitor_hostname="api.example.test"} 1
+monitor_response_time{monitor_id="42",monitor_name="Public API",monitor_type="http",monitor_url="https://api.example.test/health",monitor_hostname="api.example.test"} 123
+monitor_uptime_ratio{monitor_id="42",monitor_name="Public API",monitor_type="http",monitor_url="https://api.example.test/health",window="1d"} 0.999
+monitor_uptime_ratio{monitor_id="42",monitor_name="Public API",monitor_type="http",monitor_url="https://api.example.test/health",window="30d"} 0.997
+monitor_response_time_seconds{monitor_id="42",monitor_name="Public API",monitor_type="http",monitor_url="https://api.example.test/health",window="1d"} 0.1234
+monitor_cert_days_remaining{monitor_id="42",monitor_name="Public API",monitor_type="http",monitor_url="https://api.example.test/health"} 45
+monitor_cert_is_valid{monitor_id="42",monitor_name="Public API",monitor_type="http",monitor_url="https://api.example.test/health"} 1
+monitor_status{monitor_id="43",monitor_name="Database TCP",monitor_type="tcp",monitor_hostname="db.example.test",monitor_port="5432"} 3
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 12.5
+express_default_route_request_duration_seconds_count 7

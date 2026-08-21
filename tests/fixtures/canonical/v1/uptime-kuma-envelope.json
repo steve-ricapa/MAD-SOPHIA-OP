@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0.0",
+  "delivery_id": "delivery:sha256:f8f8a196ecc61b96d823fb26d78df5b39be1488a0e93f7d8d791380e287b1ca9",
+  "tenant_id": "1",
+  "generated_at": "2026-08-21T15:00:02Z",
+  "source": {
+    "type": "uptime_kuma",
+    "instance_id": "kuma-main",
+    "display_name": "Uptime Kuma principal"
+  },
+  "run": {
+    "run_id": "run:01K35J7N8E7WQ2QPBZ7T0S2JCM",
+    "status": "completed",
+    "started_at": "2026-08-21T15:00:00Z",
+    "ended_at": "2026-08-21T15:00:02Z",
+    "collection_window": {
+      "start": "2026-08-21T15:00:00Z",
+      "end": "2026-08-21T15:00:02Z"
+    },
+    "partial": false,
+    "record_counts": {
+      "assets": 1,
+      "observations": 1,
+      "findings": 0,
+      "detections": 0,
+      "accepted": 1,
+      "rejected": 0,
+      "quarantined": 0
+    },
+    "error_counts": {}
+  },
+  "assets": [
+    {
+      "asset_id": "asset:sha256:acd98f5334adccad627c4a8e38512e4243b8d49350b14ef9e7d2df562f899d82",
+      "source_asset_id": "42",
+      "identity_quality": "native",
+      "display_name": "Public API",
+      "hostname": "api.example.test",
+      "url": "https://api.example.test/health",
+      "endpoints": [
+        {
+          "hostname": "api.example.test",
+          "url": "https://api.example.test/health",
+          "port": 443,
+          "protocol": "https",
+          "service": "health-check"
+        }
+      ],
+      "tags": [
+        {
+          "name": "environment",
+          "value": "production"
+        }
+      ],
+      "first_observed_at": "2026-08-21T15:00:00Z",
+      "last_observed_at": "2026-08-21T15:00:00Z",
+      "attributes": {
+        "monitor_type": "http"
+      },
+      "provenance": {
+        "connector_version": "1.0.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "collected_at": "2026-08-21T15:00:00Z",
+        "raw_record_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    }
+  ],
+  "records": [
+    {
+      "record_type": "observation",
+      "record_id": "record:sha256:c1dca6fef7eefe1e7ae46a4efb02f73734e1042ea5561dd435acd9e30a23494f",
+      "asset_id": "asset:sha256:acd98f5334adccad627c4a8e38512e4243b8d49350b14ef9e7d2df562f899d82",
+      "source_object_id": "42",
+      "observation_type": "availability",
+      "kind": "initial",
+      "status": "up",
+      "observed_at": "2026-08-21T15:00:00Z",
+      "target": {
+        "hostname": "api.example.test",
+        "url": "https://api.example.test/health",
+        "port": 443,
+        "protocol": "https"
+      },
+      "measurements": [
+        {
+          "name": "response_time",
+          "value": 123.4,
+          "unit": "ms"
+        },
+        {
+          "name": "uptime_ratio",
+          "value": 0.999,
+          "unit": "ratio",
+          "window": "1d"
+        }
+      ],
+      "attributes": {
+        "monitor_name": "Public API",
+        "identity_quality": "native"
+      },
+      "decision": {
+        "outcome": "accepted",
+        "reason_code": "availability.initial_state",
+        "policy_version": "1.0.0",
+        "decided_at": "2026-08-21T15:00:01Z"
+      },
+      "provenance": {
+        "connector_version": "1.0.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "collected_at": "2026-08-21T15:00:00Z",
+        "raw_record_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.txdxsecure.com/etl/v1/asset.schema.json",
+  "title": "Canonical asset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "asset_id",
+    "source_asset_id",
+    "identity_quality",
+    "first_observed_at",
+    "last_observed_at",
+    "provenance"
+  ],
+  "properties": {
+    "asset_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "source_asset_id": { "$ref": "common.schema.json#/$defs/nonEmptyString" },
+    "identity_quality": {
+      "type": "string",
+      "enum": ["native", "derived"]
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "hostname": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253
+    },
+    "ip_addresses": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "anyOf": [
+          { "format": "ipv4" },
+          { "format": "ipv6" }
+        ]
+      }
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048
+    },
+    "endpoints": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "common.schema.json#/$defs/endpoint" }
+    },
+    "tags": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "common.schema.json#/$defs/tag" }
+    },
+    "first_observed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "last_observed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "attributes": { "$ref": "common.schema.json#/$defs/attributes" },
+    "provenance": { "$ref": "common.schema.json#/$defs/provenance" }
+  }
+}

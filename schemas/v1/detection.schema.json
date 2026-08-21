@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.txdxsecure.com/etl/v1/detection.schema.json",
+  "title": "Canonical detection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "record_id",
+    "asset_id",
+    "source_object_id",
+    "title",
+    "status",
+    "severity",
+    "occurred_at",
+    "rule",
+    "decision",
+    "provenance"
+  ],
+  "properties": {
+    "record_type": { "const": "detection" },
+    "record_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "asset_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "source_object_id": { "$ref": "common.schema.json#/$defs/nonEmptyString" },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "status": {
+      "type": "string",
+      "enum": ["new", "active", "closed", "unknown"]
+    },
+    "severity": { "$ref": "common.schema.json#/$defs/severity" },
+    "source_severity": {
+      "type": ["string", "integer", "number"],
+      "minLength": 1
+    },
+    "occurred_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "observed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "rule": { "$ref": "#/$defs/rule" },
+    "threat_references": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/reference" }
+    },
+    "compliance_references": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/reference" }
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384
+    },
+    "attributes": { "$ref": "common.schema.json#/$defs/attributes" },
+    "decision": { "$ref": "common.schema.json#/$defs/decision" },
+    "provenance": { "$ref": "common.schema.json#/$defs/provenance" }
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/nonEmptyString" },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "level": {
+          "type": "number"
+        },
+        "groups": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["framework", "id"],
+      "properties": {
+        "framework": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    }
+  }
+}

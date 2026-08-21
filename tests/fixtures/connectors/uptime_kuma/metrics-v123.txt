@@ -1,0 +1,4 @@
+# HELP monitor_status Monitor Status (0 = DOWN, 1 = UP, 2 = PENDING, 3 = MAINTENANCE).
+# TYPE monitor_status gauge
+monitor_status{monitor_name="Legacy Portal",monitor_type="http",monitor_url="https://legacy.example.test/",monitor_hostname="legacy.example.test"} 0
+monitor_response_time{monitor_name="Legacy Portal",monitor_type="http",monitor_url="https://legacy.example.test/",monitor_hostname="legacy.example.test"} 250

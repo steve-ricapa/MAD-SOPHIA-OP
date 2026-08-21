@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.txdxsecure.com/etl/v1/finding.schema.json",
+  "title": "Canonical finding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "record_id",
+    "asset_id",
+    "source_object_id",
+    "title",
+    "status",
+    "severity",
+    "first_seen_at",
+    "last_seen_at",
+    "decision",
+    "provenance"
+  ],
+  "properties": {
+    "record_type": { "const": "finding" },
+    "record_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "asset_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "source_object_id": { "$ref": "common.schema.json#/$defs/nonEmptyString" },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "resolved", "accepted", "false_positive", "unknown"]
+    },
+    "severity": { "$ref": "common.schema.json#/$defs/severity" },
+    "source_severity": {
+      "type": ["string", "integer", "number"],
+      "minLength": 1
+    },
+    "first_seen_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "last_seen_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "source_event_time": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "identifiers": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/externalIdentifier" }
+    },
+    "scores": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/score" }
+    },
+    "endpoint": { "$ref": "common.schema.json#/$defs/endpoint" },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384
+    },
+    "impact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "remediation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384
+    },
+    "occurrence_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "attributes": { "$ref": "common.schema.json#/$defs/attributes" },
+    "decision": { "$ref": "common.schema.json#/$defs/decision" },
+    "provenance": { "$ref": "common.schema.json#/$defs/provenance" }
+  },
+  "$defs": {
+    "externalIdentifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "score": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "score", "source"],
+      "properties": {
+        "system": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0
+        },
+        "vector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    }
+  }
+}

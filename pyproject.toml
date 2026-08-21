@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "txdx-etl"
+version = "0.1.0"
+description = "TXDX Secure MAD-SOPHIA V2 ETL core"
+requires-python = ">=3.11"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/txdx_etl"]

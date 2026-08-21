@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.txdxsecure.com/etl/v1/envelope.schema.json",
+  "title": "TXDX ETL V2 delivery envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "delivery_id",
+    "tenant_id",
+    "generated_at",
+    "source",
+    "run",
+    "assets",
+    "records"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "delivery_id": {
+      "$ref": "common.schema.json#/$defs/identifier"
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "generated_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "source": {
+      "$ref": "common.schema.json#/$defs/source"
+    },
+    "run": {
+      "$ref": "run.schema.json"
+    },
+    "assets": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "asset.schema.json"
+      }
+    },
+    "records": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "oneOf": [
+          { "$ref": "observation.schema.json" },
+          { "$ref": "finding.schema.json" },
+          { "$ref": "detection.schema.json" }
+        ]
+      }
+    }
+  }
+}

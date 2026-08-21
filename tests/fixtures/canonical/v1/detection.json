@@ -1,0 +1,45 @@
+{
+  "record_type": "detection",
+  "record_id": "record:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "asset_id": "asset:sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "source_object_id": "wazuh-alert-1001",
+  "title": "Example security detection",
+  "status": "new",
+  "severity": "medium",
+  "source_severity": 10,
+  "occurred_at": "2026-08-21T14:59:30Z",
+  "observed_at": "2026-08-21T15:00:00Z",
+  "rule": {
+    "id": "5710",
+    "name": "Example authentication rule",
+    "level": 10,
+    "groups": ["authentication_failed"]
+  },
+  "threat_references": [
+    {
+      "framework": "mitre_attack",
+      "id": "T1110",
+      "name": "Brute Force"
+    }
+  ],
+  "compliance_references": [
+    {
+      "framework": "pci_dss",
+      "id": "10.2.4"
+    }
+  ],
+  "description": "An anonymized detection used to validate the canonical contract.",
+  "decision": {
+    "outcome": "accepted",
+    "reason_code": "detection.medium_contextual",
+    "policy_version": "1.0.0",
+    "decided_at": "2026-08-21T15:00:01Z"
+  },
+  "provenance": {
+    "connector_version": "1.0.0",
+    "mapping_version": "1.0.0",
+    "policy_version": "1.0.0",
+    "collected_at": "2026-08-21T15:00:00Z",
+    "raw_record_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+  }
+}

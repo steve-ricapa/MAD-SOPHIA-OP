@@ -1,0 +1,48 @@
+# HELP monitor_cert_days_remaining Certificate Days Remaining
+# TYPE monitor_cert_days_remaining gauge
+monitor_cert_days_remaining{monitor_name="Portal Externo",monitor_type="http",monitor_url="https://portal.example.test/login",monitor_hostname="null",monitor_port="null"} 68
+monitor_cert_days_remaining{monitor_name="Intranet",monitor_type="http",monitor_url="https://intranet.example.test/",monitor_hostname="null",monitor_port="null"} 83
+monitor_cert_days_remaining{monitor_name="API Salud",monitor_type="http",monitor_url="https://api.example.test/health",monitor_hostname="null",monitor_port="null"} 40
+monitor_cert_days_remaining{monitor_name="Busqueda Portal",monitor_type="keyword",monitor_url="https://portal.example.test/buscar",monitor_hostname="null",monitor_port="null"} 67
+# HELP monitor_cert_is_valid Certificate is Valid
+# TYPE monitor_cert_is_valid gauge
+monitor_cert_is_valid{monitor_name="Portal Externo",monitor_type="http",monitor_url="https://portal.example.test/login",monitor_hostname="null",monitor_port="null"} 1
+monitor_cert_is_valid{monitor_name="Intranet",monitor_type="http",monitor_url="https://intranet.example.test/",monitor_hostname="null",monitor_port="null"} 1
+monitor_cert_is_valid{monitor_name="API Salud",monitor_type="http",monitor_url="https://api.example.test/health",monitor_hostname="null",monitor_port="null"} 1
+monitor_cert_is_valid{monitor_name="Busqueda Portal",monitor_type="keyword",monitor_url="https://portal.example.test/buscar",monitor_hostname="null",monitor_port="null"} 1
+# HELP monitor_response_time Monitor Response Time (ms)
+# TYPE monitor_response_time gauge
+monitor_response_time{monitor_name="Web Publica",monitor_type="http",monitor_url="http://web.example.test/",monitor_hostname="null",monitor_port="null"} 16
+monitor_response_time{monitor_name="Portal Externo",monitor_type="http",monitor_url="https://portal.example.test/login",monitor_hostname="null",monitor_port="null"} 304
+monitor_response_time{monitor_name="Busqueda Portal",monitor_type="keyword",monitor_url="https://portal.example.test/buscar",monitor_hostname="null",monitor_port="null"} 157
+monitor_response_time{monitor_name="Intranet",monitor_type="http",monitor_url="https://intranet.example.test/",monitor_hostname="null",monitor_port="null"} 523
+monitor_response_time{monitor_name="API Salud",monitor_type="http",monitor_url="https://api.example.test/health",monitor_hostname="null",monitor_port="null"} 973
+monitor_response_time{monitor_name="Resolutor Interno",monitor_type="dns",monitor_url="null",monitor_hostname="dns.example.test",monitor_port="53"} 17
+monitor_response_time{monitor_name="Puerto DNS Alterno",monitor_type="port",monitor_url="null",monitor_hostname="ns2.example.net",monitor_port="53"} 16
+monitor_response_time{monitor_name="Ping Gateway",monitor_type="ping",monitor_url="null",monitor_hostname="gw.example.lan",monitor_port="null"} 98.1
+monitor_response_time{monitor_name="Ping Impresora",monitor_type="ping",monitor_url="null",monitor_hostname="pr.example.lan",monitor_port="null"} 13.1
+monitor_response_time{monitor_name="Push Telemetria Demo",monitor_type="push",monitor_url="null",monitor_hostname="null",monitor_port="null"} -1
+# HELP monitor_status Monitor Status (0 = DOWN, 1 = UP, 2 = PENDING, 3 = MAINTENANCE)
+# TYPE monitor_status gauge
+monitor_status{monitor_name="Web Publica",monitor_type="http",monitor_url="http://web.example.test/",monitor_hostname="null",monitor_port="null"} 1
+monitor_status{monitor_name="Portal Externo",monitor_type="http",monitor_url="https://portal.example.test/login",monitor_hostname="null",monitor_port="null"} 1
+monitor_status{monitor_name="Busqueda Portal",monitor_type="keyword",monitor_url="https://portal.example.test/buscar",monitor_hostname="null",monitor_port="null"} 1
+monitor_status{monitor_name="Intranet",monitor_type="http",monitor_url="https://intranet.example.test/",monitor_hostname="null",monitor_port="null"} 1
+monitor_status{monitor_name="API Salud",monitor_type="http",monitor_url="https://api.example.test/health",monitor_hostname="null",monitor_port="null"} 1
+monitor_status{monitor_name="Resolutor Interno",monitor_type="dns",monitor_url="null",monitor_hostname="dns.example.test",monitor_port="53"} 1
+monitor_status{monitor_name="Puerto DNS Alterno",monitor_type="port",monitor_url="null",monitor_hostname="ns2.example.net",monitor_port="53"} 1
+monitor_status{monitor_name="Ping Gateway",monitor_type="ping",monitor_url="null",monitor_hostname="gw.example.lan",monitor_port="null"} 1
+monitor_status{monitor_name="Ping Impresora",monitor_type="ping",monitor_url="null",monitor_hostname="pr.example.lan",monitor_port="null"} 1
+monitor_status{monitor_name="Push Telemetria Demo",monitor_type="push",monitor_url="null",monitor_hostname="null",monitor_port="null"} 0
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 41.7
+# HELP nodejs_eventloop_lag_seconds Lag of event loop in seconds.
+# TYPE nodejs_eventloop_lag_seconds gauge
+nodejs_eventloop_lag_seconds 0.02
+# HELP app_version Uptime Kuma Version
+# TYPE app_version gauge
+app_version{version="1.23.17",major="1",minor="23",patch="17"} 1
+# HELP expressjs_number_of_open_connections Number of open connections
+# TYPE expressjs_number_of_open_connections gauge
+expressjs_number_of_open_connections 2
