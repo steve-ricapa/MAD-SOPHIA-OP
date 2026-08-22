@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TXDX ETL - Panel local</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #1a2129; --border: #2d3742;
+    --text: #e6edf3; --muted: #8b98a5;
+    --ok: #3fb950; --warn: #d29922; --err: #f85149; --info: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif; font-size: 14px;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  #conn { font-size: 12px; color: var(--muted); margin-left: auto; }
+  .cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px; padding: 14px 20px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+  }
+  .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .card .value { font-size: 22px; font-weight: 600; margin-top: 2px; }
+  main { padding: 0 20px 30px; display: grid; gap: 16px; }
+  section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  section h2 {
+    font-size: 13px; margin: 0; padding: 10px 14px;
+    border-bottom: 1px solid var(--border); color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 7px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge {
+    display: inline-block; padding: 1px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600;
+  }
+  .b-ok { background: rgba(63,185,80,.15); color: var(--ok); }
+  .b-warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .b-err { background: rgba(248,81,73,.15); color: var(--err); }
+  .b-info { background: rgba(88,166,255,.15); color: var(--info); }
+  .muted { color: var(--muted); }
+  .empty { padding: 18px 14px; color: var(--muted); }
+  .up { color: var(--ok); } .down { color: var(--err); } .unknown { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>TXDX ETL - Panel local</h1>
+  <span id="conn">conectando...</span>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="label">Ultimo ciclo</div><div class="value" id="k-last">-</div></div>
+  <div class="card"><div class="label">Scrape fuente</div><div class="value" id="k-scrape">-</div></div>
+  <div class="card"><div class="label">Cola pendiente</div><div class="value" id="k-pending">-</div></div>
+  <div class="card"><div class="label">Enviados</div><div class="value" id="k-delivered">-</div></div>
+  <div class="card"><div class="label">Apartados (failed)</div><div class="value" id="k-failed">-</div></div>
+  <div class="card"><div class="label">Monitores vigilados</div><div class="value" id="k-monitors">-</div></div>
+</div>
+
+<main>
+  <section>
+    <h2>Flujo ETL - ciclos recientes</h2>
+    <table>
+      <thead><tr>
+        <th>Hora ciclo</th><th>Scrape</th><th>Detectados</th><th>Encolados</th>
+        <th>Intentos envio</th><th>Entregados</th><th>Apartados</th><th>Pendientes</th><th>Nota</th>
+      </tr></thead>
+      <tbody id="cycles"></tbody>
+    </table>
+    <div class="empty" id="cycles-empty" hidden>Sin ciclos registrados todavia.</div>
+  </section>
+
+  <section>
+    <h2>Datos - monitores en seguimiento</h2>
+    <table>
+      <thead><tr>
+        <th>Monitor</th><th>Tipo</th><th>Estado</th><th>Certificado</th>
+        <th>Visto desde</th><th>Ultima vez visto</th>
+      </tr></thead>
+      <tbody id="monitors"></tbody>
+    </table>
+    <div class="empty" id="monitors-empty" hidden>El detector aun no ha visto monitores.</div>
+  </section>
+
+  <section>
+    <h2>Eventos recientes</h2>
+    <table>
+      <thead><tr>
+        <th>Observado</th><th>Monitor</th><th>Observacion</th><th>Tipo</th><th>Cambio</th><th>Entrega</th>
+      </tr></thead>
+      <tbody id="events"></tbody>
+    </table>
+    <div class="empty" id="events-empty" hidden>Sin eventos registrados todavia.</div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function badge(text, cls) { return `<span class="badge ${cls}">${text}</span>`; }
+
+function fmtStatus(s) {
+  if (s === "up") return badge("up", "b-ok");
+  if (s === "down") return badge("down", "b-err");
+  return `<span class="unknown">${s ?? "-"}</span>`;
+}
+
+function esc(v) {
+  return String(v ?? "-").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+}
+
+function render(data) {
+  const counts = data.counts || {};
+  const latest = data.latest_cycle;
+
+  $("k-pending").textContent = counts.pending ?? 0;
+  $("k-delivered").textContent = counts.delivered ?? 0;
+  $("k-failed").textContent = counts.failed ?? 0;
+  $("k-monitors").textContent = (data.tracked_monitors || []).length;
+
+  if (latest) {
+    $("k-last").textContent = latest.observed_at.replace("T", " ").replace("Z", "");
+    $("k-scrape").innerHTML = latest.scrape_ok
+      ? badge("OK", "b-ok")
+      : badge(latest.scrape_error || "FALLO", "b-err");
+  }
+
+  const cyclesBody = $("cycles");
+  cyclesBody.innerHTML = (data.cycles || []).map(c => {
+    const scrape = c.scrape_ok ? badge("ok", "b-ok") : badge(c.scrape_error || "error", "b-err");
+    let note = "-";
+    if (c.skipped_by_backoff) note = badge("envio en espera", "b-warn");
+    else if (c.transient_failures > 0) note = badge(`reintento (${c.transient_failures})`, "b-warn");
+    else if (c.parked > 0) note = badge(`${c.parked} apartado(s)`, "b-err");
+    else if (!c.scrape_ok) note = badge("sin lectura", "b-warn");
+    else if (c.records_detected === 0) note = badge("tranquilo", "b-info");
+    return `<tr>
+      <td>${esc(c.observed_at.replace("T"," ").replace("Z",""))}</td>
+      <td>${scrape}</td>
+      <td class="num">${c.records_detected}</td>
+      <td class="num">${c.records_enqueued}</td>
+      <td class="num">${c.drain_attempted}</td>
+      <td class="num">${c.delivered}</td>
+      <td class="num">${c.parked > 0 ? badge(c.parked, "b-err") : c.parked}</td>
+      <td class="num">${c.pending_left}</td>
+      <td>${note}</td>
+    </tr>`;
+  }).join("");
+  $("cycles-empty").hidden = (data.cycles || []).length > 0;
+
+  const monitorsBody = $("monitors");
+  monitorsBody.innerHTML = (data.tracked_monitors || []).map(m => {
+    const cert = m.cert_is_valid === null
+      ? '<span class="unknown">n/a</span>'
+      : (m.cert_is_valid ? badge("valido", "b-ok") : badge("invalido", "b-err"));
+    const missing = m.missing_scrapes > 0
+      ? ` <span class="muted">(ausente x${m.missing_scrapes})</span>` : "";
+    return `<tr>
+      <td>${esc(m.monitor_name)}${missing}</td>
+      <td class="muted">${esc(m.monitor_type)}</td>
+      <td>${fmtStatus(m.canonical_status)}</td>
+      <td>${cert}</td>
+      <td class="muted">${esc((m.first_seen_at || "").replace("T"," ").replace("Z",""))}</td>
+      <td class="muted">${esc((m.last_seen_at || "").replace("T"," ").replace("Z",""))}</td>
+    </tr>`;
+  }).join("");
+  $("monitors-empty").hidden = (data.tracked_monitors || []).length > 0;
+
+  const names = {};
+  for (const m of data.tracked_monitors || []) {
+    names[m.source_asset_id] = m.monitor_name || m.source_asset_id;
+  }
+
+  const eventsBody = $("events");
+  eventsBody.innerHTML = (data.events || []).map(e => {
+    const change = e.previous_status
+      ? `${fmtStatus(e.previous_status)} &rarr; ${fmtStatus(e.status)}`
+      : fmtStatus(e.status);
+    const delivery = e.delivery_status === "delivered"
+      ? badge("entregado", "b-ok")
+      : e.delivery_status === "failed"
+        ? badge("apartado", "b-err")
+        : badge("pendiente", "b-warn");
+    return `<tr>
+      <td class="muted">${esc((e.observed_at || "").replace("T"," ").replace("Z",""))}</td>
+      <td>${esc(names[e.source_object_id] || e.source_object_id)}</td>
+      <td class="muted">${esc(e.observation_type)}</td>
+      <td>${badge(e.kind, "b-info")}</td>
+      <td>${change}</td>
+      <td>${delivery}</td>
+    </tr>`;
+  }).join("");
+  $("events-empty").hidden = (data.events || []).length > 0;
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/overview?cycles=25&events=60");
+    if (!res.ok) throw new Error(res.status);
+    render(await res.json());
+    $("conn").textContent = "actualizado " + new Date().toLocaleTimeString();
+    $("conn").style.color = "";
+  } catch (err) {
+    $("conn").textContent = "sin conexion con la API";
+    $("conn").style.color = "#f85149";
+  }
+}
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

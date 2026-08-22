@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
 from txdx_etl.connectors.uptime_kuma import mapper
 from txdx_etl.connectors.uptime_kuma.mapper import MappingContext
@@ -10,6 +10,14 @@ from txdx_etl.connectors.uptime_kuma.parser import STATUS_MAP, MetricsSnapshot
 
 DEFAULT_DISAPPEAR_AFTER_SCRAPES = 3
 DEFAULT_REFRESH_INTERVAL_SECONDS = 300
+
+
+class DetectorStateStore(Protocol):
+    def load(self) -> tuple[int, dict[str, "TrackedMonitor"]]: ...
+
+    def save(
+        self, *, cycles: int, monitors: dict[str, "TrackedMonitor"]
+    ) -> None: ...
 
 
 def _seconds_between(start: str, end: str) -> int:
@@ -50,6 +58,7 @@ class ChangeDetector:
         mapping_version: str = "1.0.0",
         policy_version: str = "1.0.0",
         bucket_seconds: int = 300,
+        state_store: DetectorStateStore | None = None,
     ) -> None:
         if disappear_after_scrapes < 1:
             raise ValueError("disappear_after_scrapes must be at least 1")
@@ -65,6 +74,9 @@ class ChangeDetector:
         self._bucket_seconds = bucket_seconds
         self._tracked: dict[str, TrackedMonitor] = {}
         self._cycles = 0
+        self._state_store = state_store
+        if state_store is not None:
+            self._cycles, self._tracked = state_store.load()
 
     @property
     def cycles(self) -> int:
@@ -179,6 +191,8 @@ class ChangeDetector:
                     cert_is_valid=tracked.cert_is_valid,
                     missing_scrapes=missing,
                 )
+        if self._state_store is not None:
+            self._state_store.save(cycles=self._cycles, monitors=self._tracked)
         return CycleResult(assets=assets, records=records, summary=summary)
 
 

@@ -7,7 +7,7 @@
 | Estado general | En desarrollo |
 | Fase funcional activa | Fase 2: contrato canonico y Fase 3: investigacion Uptime Kuma |
 | Proximo gate obligatorio | Aprobar contrato canonico y fixture real de Uptime Kuma |
-| Implementacion V2 | Contrato, nucleo de dominio y conector Uptime Kuma offline iniciados; runtime, HTTP y delivery no iniciados |
+| Implementacion V2 | Contrato, nucleo de dominio y conector Uptime Kuma offline completos; runtime del ciclo con outbox y reintentos probado; faltan envio HTTP real al backend y scheduler |
 | Fuentes iniciales | Uptime Kuma y Zabbix |
 | Despliegue objetivo | Un contenedor continuo por appliance |
 | Recursos objetivo | 4 CPU y 8 GB RAM |
@@ -141,8 +141,10 @@ Verificacion con instancia real de laboratorio (2026-08-21):
 - Escala observada: 10 monitores (http x4, keyword x1, dns x1, port x1, ping x2, push x1), 28 series, 9 up y 1 down.
 - Hallazgo nuevo: labels ausentes llegan como literal `"null"`; el parser los normaliza a ausencia antes de identidad y mapping, con pruebas de regresion.
 - Cliente HTTP validado en vivo: credencial incorrecta produce error bloqueante clasificado; credenciales validas producen snapshot parsable en ~130 ms.
-- Fixture anonimizado con forma real agregado; 105 pruebas automatizadas ejecutandose correctamente.
+- Fixture anonimizado con forma real agregado; 126 pruebas automatizadas ejecutandose correctamente.
 - Motor de cambios implementado (`connectors/uptime_kuma/detector.py`): clasifica monitores como `initial`, `refresh`, `change`, `discovered` o `disappeared`; la desaparicion se confirma solo tras varios scrapes exitosos consecutivos sin el monitor (umbral configurable, 3 por defecto). Los ciclos sin cambios no emiten registros; el latido periodico sale una vez por ventana configurable (300 s por defecto) y un cambio de validez de certificado se emite de inmediato aunque el estado no varie.
+- Spool durable implementado: outbox SQLite generico (`pipeline/outbox.py`) que encola envelopes pendientes, registra entregas exitosas y deduplica por `record_id` ya entregado; estado del detector persistido (`connectors/uptime_kuma/state_store.py`) para que un reinicio continue donde quedo en lugar de reemitir todo como nuevo. Ambos comparten un unico archivo de base de datos y se validan contra los schemas y el validador cross-record.
+- Runtime del ciclo implementado (`pipeline/runtime.py`): `PipelineRuntime.run_cycle` ejecuta lectura, deteccion, encolado y drenaje en una sola llamada; el `OutboxSender` integrado reintenta con espera creciente (15 s inicial, tope 60 s) que se pausa solo sin frenar la lectura, se reinicia tras cada entrega y distingue fallos transitorios (reintento) de permanentes (envelope apartado en `failed` sin bloquear el resto). Los ciclos con fuente caida no alimentan al detector: error de credenciales se reporta, snapshot vacio con monitores en seguimiento se ignora y fallo transitorio de red no avanza el umbral de desaparicion.
 
 ## Arquitectura acordada
 
@@ -241,7 +243,7 @@ El acceso al laboratorio usa una contrasena compartida por chat y transporte HTT
 
 1. Revisar y aprobar el contrato canonico, su implementacion de identidad y el validador cross-record.
 2. Aprobar redaccion de URLs (tokens push), frecuencia y politica de desaparicion de Uptime Kuma.
-3. Continuar con deduplicacion exacta, spool durable y outbox SQLite.
+3. Reemplazar el sink de prueba por el envio HTTP real al backend (con `Idempotency-Key`) y conectar el ciclo a un scheduler con intervalo configurable.
 4. Definir reglas de filtrado concretas para Uptime Kuma sobre el contrato aprobado.
 
 ## Regla para actualizar este registro

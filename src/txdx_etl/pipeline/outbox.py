@@ -122,8 +122,18 @@ class SqliteOutbox:
             if cursor.rowcount == 0:
                 raise KeyError(f"pending delivery not found: {delivery_id}")
 
+    def park(self, delivery_id: str, *, reason: str, at: str) -> None:
+        with self._conn:
+            cursor = self._conn.execute(
+                "UPDATE outbox SET status = 'failed', last_error = ?, "
+                "updated_at = ? WHERE delivery_id = ? AND status = 'pending'",
+                (reason[:512], at, delivery_id),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(f"pending delivery not found: {delivery_id}")
+
     def counts(self) -> dict[str, int]:
-        totals = {"pending": 0, "delivered": 0}
+        totals = {"pending": 0, "delivered": 0, "failed": 0}
         for status, count in self._conn.execute(
             "SELECT status, COUNT(*) FROM outbox GROUP BY status"
         ):
