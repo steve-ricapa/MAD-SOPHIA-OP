@@ -120,7 +120,7 @@ def recent_events(
     try:
         rows = conn.execute(
             "SELECT status, created_at, envelope_json FROM outbox "
-            "ORDER BY id DESC LIMIT ?",
+            "ORDER BY created_at DESC, delivery_id DESC LIMIT ?",
             (envelope_limit,),
         )
         events: list[dict[str, Any]] = []

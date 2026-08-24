@@ -2,7 +2,7 @@
 
 ## Estado general
 
-**En desarrollo.** El contrato canonico de Fase 2 tiene schemas, fixtures, identidad determinista y validacion cross-record implementados y probados. El conector Uptime Kuma fue verificado contra una instancia real 1.23.17 de laboratorio: parsea, mapea y valida el ciclo completo; el runtime ejecuta lectura-deteccion-encolado-envio con reintentos sobre outbox SQLite. Faltan el envio HTTP real al backend, el scheduler y aprobaciones del gate.
+**En desarrollo.** El contrato canonico de Fase 2 tiene schemas, fixtures, identidad determinista y validacion cross-record implementados y probados. El conector Uptime Kuma fue verificado contra una instancia real 1.23.17 de laboratorio: parsea, mapea y valida el ciclo completo; el runtime ejecuta lectura-deteccion-encolado-envio con reintentos sobre outbox SQLite, y un dashboard local FastAPI muestra datos y flujo del pipeline en vivo. El envio HTTP al backend queda disenado para la etapa final.
 
 El resumen consolidado de avances, pendientes, bloqueos y riesgos se mantiene en `development-status.md`.
 
@@ -32,7 +32,8 @@ El resumen consolidado de avances, pendientes, bloqueos y riesgos se mantiene en
 - Motor de cambios entre snapshots: `initial`, `refresh`, `change`, `discovered` y `disappeared`. Los ciclos tranquilos no envian nada; solo eventos al instante mas un latido periodico por monitor (desaparicion confirmada tras varios scrapes sin el monitor).
 - Spool durable en SQLite: outbox de envios pendientes con deduplicacion exacta por `record_id` y estado persistente del detector, de modo que un reinicio no pierda ni duplique eventos.
 - Ciclo completo ejecutable (`pipeline/runtime.py`): lectura, deteccion, encolado y envio con reintentos de espera creciente; fallos transitorios pausan solo el envio y los permanentes apartan el envelope sin bloquear el resto.
-- 126 pruebas automatizadas de schema, identidad, validacion cross-record, parser, mapper, cliente, detector de cambios, outbox, runtime y forma real.
+- Dashboard local (`dashboard/`): FastAPI mas pagina unica con tres paneles (flujo ETL por ciclo, monitores vigilados, eventos recientes) leyendo directo del SQLite compartido; sirve como destino provisional mientras no exista backend.
+- 142 pruebas automatizadas de schema, identidad, validacion cross-record, parser, mapper, cliente, detector de cambios, outbox, runtime, registro de ciclos, vistas del dashboard, lanzador CLI y forma real.
 - Comparacion oficial de `/metrics`, API interna, webhook y acceso SQLite de Uptime Kuma.
 - Compatibilidad identificada entre Uptime Kuma 1.23.x y 2.x.
 - Diseno de sondeo de capacidades porque la version desplegada aun no se conoce.

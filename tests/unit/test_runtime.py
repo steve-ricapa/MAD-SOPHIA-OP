@@ -15,6 +15,7 @@ from txdx_etl.connectors.uptime_kuma.client import (
     TransientMetricsError,
 )
 from txdx_etl.connectors.uptime_kuma.detector import ChangeDetector
+from txdx_etl.pipeline.cycle_log import SqliteCycleLog
 from txdx_etl.pipeline.outbox import SqliteOutbox
 from txdx_etl.pipeline.runtime import (
     PermanentDeliveryError,
@@ -83,7 +84,7 @@ class FlakySink:
 
 
 class RuntimeHarness(unittest.TestCase):
-    def make_runtime(self, client, sink, **detector_kwargs):
+    def make_runtime(self, client, sink, *, cycle_log=None, **detector_kwargs):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         outbox = SqliteOutbox(str(Path(tmp.name) / "spool.db"))
@@ -98,6 +99,7 @@ class RuntimeHarness(unittest.TestCase):
             detector=detector,
             outbox=outbox,
             sink=sink,
+            cycle_log=cycle_log,
         )
         return runtime, outbox
 
@@ -278,6 +280,29 @@ class ScrapeFailureTests(RuntimeHarness):
         self.assertEqual(steady.records_detected, 0)
         self.assertEqual(runtime.detector.tracked_count, 1)
         self.assertEqual(runtime.detector.cycles, 2)
+
+
+class CycleLogTests(RuntimeHarness):
+    def test_every_cycle_is_logged_even_failed_scrapes(self) -> None:
+        log = SqliteCycleLog(str(Path(tempfile.mkdtemp()) / "log.db"))
+        self.addCleanup(log.close)
+        sink = FlakySink()
+        client = FakeClient(
+            fetch(web_text()),
+            AuthenticationError("bad credentials"),
+        )
+        runtime, _ = self.make_runtime(client, sink, cycle_log=log)
+        good = runtime.run_cycle(observed_at=T0)
+        bad = runtime.run_cycle(observed_at="2026-08-22T10:01:00Z")
+        rows = log.recent(limit=10)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1]["observed_at"], T0)
+        self.assertTrue(rows[1]["scrape_ok"])
+        self.assertEqual(rows[1]["delivered"], good.drain.delivered)
+        self.assertEqual(rows[0]["observed_at"], "2026-08-22T10:01:00Z")
+        self.assertFalse(rows[0]["scrape_ok"])
+        self.assertEqual(rows[0]["scrape_error"], "AuthenticationError")
+        del bad
 
 
 if __name__ == "__main__":
