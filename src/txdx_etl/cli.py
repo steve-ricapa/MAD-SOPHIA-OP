@@ -19,6 +19,11 @@ from txdx_etl.pipeline.runtime import CycleReport, PipelineRuntime
 
 REQUIRED_KEYS = ("UPTIME_KUMA_URL", "UPTIME_KUMA_USERNAME", "UPTIME_KUMA_PASSWORD")
 
+# Politica del supervisor: backoff entre reinicios y umbral de "sesion estable".
+SUPERVISOR_INITIAL_PAUSE_SECONDS = 5
+SUPERVISOR_MAX_PAUSE_SECONDS = 60
+SESSION_STABLE_SECONDS = 300
+
 _ENV_MAP = {
     "UPTIME_KUMA_URL": "url",
     "UPTIME_KUMA_USERNAME": "username",
@@ -102,7 +107,12 @@ def build_runtime(
     password: str | None,
     db_path: str,
     allow_insecure: bool = False,
+    resources_out: list | None = None,
 ):
+    # Si la construccion falla a medias (ej. SQLite bloqueado), los recursos ya
+    # creados quedan registrados en resources_out para que el llamante pueda
+    # cerrarlos y el reintento del supervisor no herede handles abiertos.
+    track = resources_out.append if resources_out is not None else lambda _r: None
     client_config = MetricsClientConfig(
         base_url=base_url,
         username=username,
@@ -110,14 +120,18 @@ def build_runtime(
         allow_insecure_transport=allow_insecure,
     )
     state = SqliteStateStore(db_path)
+    track(state)
     detector = ChangeDetector(
         tenant_id=tenant_id,
         instance_id=instance_id,
         state_store=state,
     )
     outbox = SqliteOutbox(db_path)
+    track(outbox)
     cycle_log = SqliteCycleLog(db_path)
+    track(cycle_log)
     client = MetricsClient(client_config)
+    track(client)
     runtime = PipelineRuntime(
         tenant_id=tenant_id,
         instance_id=instance_id,
@@ -143,54 +157,83 @@ def _print_cycle(report: CycleReport) -> None:
     )
 
 
-def run_session(settings: dict[str, str]) -> int:
-    """Abre conexiones y corre ciclos hasta Ctrl+C. Retorna codigo de salida."""
-    runtime, resources = build_runtime(
-        tenant_id=settings["tenant"],
-        instance_id=settings["instance"],
-        display_name=settings["display_name"],
-        base_url=settings["url"],
-        username=settings["username"],
-        password=settings["password"],
-        db_path=settings["db"],
-        allow_insecure=settings["allow_insecure"].lower() in {"1", "true", "yes"},
-    )
+def run_session(settings: dict[str, str], *, builder=None) -> int:
+    """Abre conexiones y corre ciclos hasta Ctrl+C. Retorna codigo de salida.
+
+    Propaga KeyboardInterrupt hacia arriba: quien decida si es una salida
+    limpia es el llamante (main en modo simple, supervise en modo --supervise).
+    Asi un Ctrl+C extrano nunca detiene al supervisor de forma silenciosa.
+    """
+    build = builder if builder is not None else build_runtime
+    tracked: list = []
     interval = max(int(settings["interval"]), 1)
     try:
+        runtime, _resources = build(
+            tenant_id=settings["tenant"],
+            instance_id=settings["instance"],
+            display_name=settings["display_name"],
+            base_url=settings["url"],
+            username=settings["username"],
+            password=settings["password"],
+            db_path=settings["db"],
+            allow_insecure=settings["allow_insecure"].lower() in {"1", "true", "yes"},
+            resources_out=tracked,
+        )
         while True:
             report = runtime.run_cycle(observed_at=_now_utc())
             _print_cycle(report)
             time.sleep(interval)
-    except KeyboardInterrupt:
-        print("interrumpido por el usuario", flush=True)
-        return 0
     finally:
-        for resource in resources:
-            resource.close()
+        for resource in tracked:
+            try:
+                resource.close()
+            except Exception as exc:
+                print(
+                    f"[{_now_utc()}] aviso: fallo cerrando "
+                    f"{type(resource).__name__}: {exc}",
+                    flush=True,
+                )
 
 
-def supervise(settings: dict[str, str]) -> int:
-    """Reinicia la sesion automaticamente si el proceso interno falla."""
-    pause = 5
+def supervise(
+    settings: dict[str, str],
+    *,
+    run=None,
+    sleep=time.sleep,
+    monotonic=time.monotonic,
+    initial_pause_seconds: int = SUPERVISOR_INITIAL_PAUSE_SECONDS,
+    max_pause_seconds: int = SUPERVISOR_MAX_PAUSE_SECONDS,
+) -> int:
+    """Reinicia la sesion automaticamente si el proceso interno falla.
+
+    Ninguna excepcion del ciclo termina al supervisor: se registra el motivo,
+    se reconstruye el runtime completo (recursos incluidos) y se reintenta con
+    backoff exponencial acotado por max_pause_seconds. Solo Ctrl+C lo detiene.
+    """
+    run_fn = run if run is not None else run_session
+    pause = max(int(initial_pause_seconds), 1)
+    cap = max(int(max_pause_seconds), pause)
+    restarts = 0
     while True:
-        started = time.monotonic()
+        started = monotonic()
         try:
-            return run_session(settings)
+            return run_fn(settings)
         except KeyboardInterrupt:
             print("supervisor detenido por el usuario", flush=True)
             return 0
         except Exception as exc:
-            lasted = time.monotonic() - started
-            if lasted > 300:
-                pause = 5
-            stamp = _now_utc()
+            lasted = monotonic() - started
+            restarts += 1
+            if lasted > SESSION_STABLE_SECONDS:
+                pause = max(int(initial_pause_seconds), 1)
             print(
-                f"[{stamp}] sesion termino inesperadamente "
-                f"({type(exc).__name__}: {exc}); reiniciando en {pause}s",
+                f"[{_now_utc()}] sesion #{restarts} termino inesperadamente "
+                f"(duro {lasted:.0f}s; {type(exc).__name__}: {exc}); "
+                f"reconstruyendo runtime y reiniciando en {pause}s",
                 flush=True,
             )
-            time.sleep(pause)
-            pause = min(pause * 2, 60)
+            sleep(pause)
+            pause = min(pause * 2, cap)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -255,7 +298,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.supervise:
         return supervise(settings)
-    return run_session(settings)
+    try:
+        return run_session(settings)
+    except KeyboardInterrupt:
+        print("interrumpido por el usuario", flush=True)
+        return 0
 
 
 def run_single_cycle(settings: dict[str, str]) -> CycleReport:
