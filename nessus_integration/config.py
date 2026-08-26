@@ -88,12 +88,13 @@ def load_config() -> Config:
 
     output_mode = (os.getenv("NESSUS_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "all").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
-    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "8"))
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID") or "0")
     tenant_id = int(os.getenv("TXDXAI_TENANT_ID") or company_id)
     api_key = (
         os.getenv("TXDXAI_API_KEY_NESSUS")
         or os.getenv("TXDXAI_API_KEY")
-        or os.getenv("API_KEY", "local_test_key")
+        or os.getenv("API_KEY")
+        or ""
     ).strip()
     scanner_type = (os.getenv("NESSUS_SCANNER_TYPE") or os.getenv("SCANNER_TYPE", "nessus")).strip().lower()
     event_type = (os.getenv("NESSUS_EVENT_TYPE") or os.getenv("EVENT_TYPE", "vuln_scan_report")).strip()
@@ -141,6 +142,10 @@ def load_config() -> Config:
         raise SystemExit("NESSUS_OUTPUT_MODE/OUTPUT_MODE debe ser stdout, webhook o all.")
     if output_mode in {"webhook", "all"} and not webhook_url:
         raise SystemExit("TXDXAI_INGEST_URL es requerido cuando NESSUS_OUTPUT_MODE/OUTPUT_MODE=webhook/all.")
+    if output_mode in {"webhook", "all"} and (tenant_id <= 0 or company_id <= 0):
+        raise SystemExit("Falta TXDXAI_TENANT_ID/TXDXAI_COMPANY_ID (>0) para OUTPUT_MODE=webhook/all.")
+    if output_mode in {"webhook", "all"} and not api_key:
+        raise SystemExit("Falta TXDXAI_API_KEY_NESSUS/TXDXAI_API_KEY/API_KEY para OUTPUT_MODE=webhook/all.")
     if poll_interval <= 0:
         raise SystemExit("POLL_INTERVAL_SECONDS debe ser > 0.")
     if http_retries < 1:

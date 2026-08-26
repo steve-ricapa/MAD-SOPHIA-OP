@@ -39,7 +39,7 @@ Agente Python para consumir datos de Nessus, normalizarlos al formato unificado 
 pip install -r requirements.txt
 ```
 
-2. Crea tu `.env` desde `.env.example`.
+2. Crea tu `.env` raiz desde el `.env.example` de la raiz del repo.
 
 3. Corre el agente en bucle:
 

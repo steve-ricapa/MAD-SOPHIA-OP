@@ -31,7 +31,7 @@ Agente Python para consumir telemetria de Uptime Kuma desde `/metrics`, converti
 
 ## Ejecucion
 
-Primero crea tu `.env` desde `.env.example`.
+Primero crea tu `.env` raiz desde el `.env.example` de la raiz del repo.
 
 ```bash
 python agent.py

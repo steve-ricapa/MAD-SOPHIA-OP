@@ -26,7 +26,7 @@ from config import (
     validate_config,
 )
 
-from snapshot import build_snapshot_signature, decide_snapshot_send
+from snapshot import build_idempotency_key, build_snapshot_signature, decide_snapshot_send
 
 from services import (
     FileLock, load_state, save_state, purge_sent,
@@ -576,10 +576,11 @@ while True:
                         findings_hash = hashlib.sha256(
                             json.dumps(findings or [], sort_keys=True, default=str).encode("utf-8")
                         ).hexdigest()
-                        task_key = hashlib.sha256(f"{report_id}:{findings_hash}".encode("utf-8")).hexdigest()
-                        idempotency_key = f"sha256:{task_key}"
+                        idempotency_key = build_idempotency_key(
+                            TXDXAI_COMPANY_ID, "openvas", "vuln_scan_report", f"{report_id}:{findings_hash}"
+                        )
                         if DEBUG_FLAG:
-                            print(f"[{now()}] [DEBUG] report_id={report_id} findings_count={len(findings or [])} findings_hash={findings_hash[:16]}... task_key={task_key[:16]}... idempotency_key={idempotency_key}")
+                            print(f"[{now()}] [DEBUG] report_id={report_id} findings_count={len(findings or [])} findings_hash={findings_hash[:16]}... idempotency_key={idempotency_key}")
 
                         metrics, entities = build_dashboard_blocks(severities, findings, report_stats)
 

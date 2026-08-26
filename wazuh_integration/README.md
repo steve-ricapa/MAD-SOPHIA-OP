@@ -22,7 +22,6 @@ Conector incremental para extraer alertas desde Wazuh, normalizarlas y enviarlas
 ```text
 wazuh_integration/
   main.py
-  .env.example
   requirements.txt
   src/
     aggregator.py

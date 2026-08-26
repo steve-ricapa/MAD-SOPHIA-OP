@@ -179,7 +179,7 @@ def main():
 
             scan_id = str(uuid.uuid4())
             idempotency_key = build_idempotency_key(
-                cfg.company_id, "zabbix", "vuln_scan_report", f"{current_signature}-{scan_id}"
+                cfg.company_id, "zabbix", "vuln_scan_report", current_signature
             )
             report, _ = summarize(
                 scan_id=scan_id,
@@ -250,6 +250,9 @@ def main():
 
         except Exception as e:
             _log(f"[ERROR] Cycle failure: {str(e)}")
+            if args.once:
+                _log("[INFO] Single-run mode failed. Exiting.")
+                break
             _log(f"[INFO] Retrying in {cfg.backoff_seconds} seconds...")
             time.sleep(cfg.backoff_seconds)
             continue

@@ -88,11 +88,15 @@ def load_backend_settings() -> BackendSettings:
     queue_dir_raw = os.getenv("INSIGHTVM_QUEUE_DIR") or os.getenv("QUEUE_DIR", "runtime/insightvm/queue")
     queue_dir = _resolve_path(repo_root, queue_dir_raw, "runtime/insightvm/queue")
 
-    company_id = int(os.getenv("TXDXAI_COMPANY_ID", "8"))
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or "0")
+    tenant_id = int(os.getenv("TXDXAI_TENANT_ID") or company_id)
+    url = os.getenv("TXDXAI_INGEST_URL")
+    if url and (company_id <= 0 or tenant_id <= 0):
+        raise ValueError("TXDXAI_COMPANY_ID/TXDXAI_TENANT_ID debe ser > 0 para enviar al backend")
 
     return BackendSettings(
-        url=os.getenv("TXDXAI_INGEST_URL"),
-        tenant_id=int(os.getenv("TXDXAI_TENANT_ID") or company_id),
+        url=url,
+        tenant_id=tenant_id,
         company_id=company_id,
         api_key=(
             os.getenv("TXDXAI_API_KEY_INSIGHTVM")

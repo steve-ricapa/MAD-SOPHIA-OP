@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-import hashlib
 import json
+import sys
+from pathlib import Path
 from typing import Any
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from mad_common.snapshot import build_idempotency_key, decide_snapshot_send  # noqa: E402
 
 
 def _normalise_severity(sev: int) -> str:
@@ -17,10 +24,20 @@ def build_snapshot_signature(
     all_triggers: list[dict[str, Any]],
 ) -> str:
     severity_counts: dict[str, int] = {}
+    problem_ids: list[str] = []
     for p in problems:
         sev = int(p.get("severity", 0))
         label = _normalise_severity(sev)
         severity_counts[label] = severity_counts.get(label, 0) + 1
+        oid = p.get("objectid")
+        if oid is not None:
+            problem_ids.append(f"{oid}:{label}")
+
+    trigger_ids: list[str] = []
+    for t in all_triggers:
+        tid = t.get("triggerid")
+        if tid is not None:
+            trigger_ids.append(f"{tid}:{int(t.get('priority', 0))}")
 
     compact = {
         "problem_count": len(problems),
@@ -28,54 +45,7 @@ def build_snapshot_signature(
         "host_count": len(all_hosts),
         "trigger_count": len(all_triggers),
         "severity_counts": severity_counts,
+        "problem_ids": sorted(problem_ids),
+        "trigger_ids": sorted(trigger_ids),
     }
     return json.dumps(compact, separators=(",", ":"), sort_keys=True)
-
-
-def decide_snapshot_send(
-    *,
-    current_signature: str,
-    previous_signature: str,
-    unchanged_cycles: int,
-    has_sent_once: bool,
-    force_send_every_cycles: int,
-    snapshot_always_send: bool,
-) -> dict[str, Any]:
-    changed = current_signature != previous_signature
-    next_unchanged = 0 if changed else (int(unchanged_cycles) + 1)
-
-    if snapshot_always_send:
-        return {
-            "changed": changed,
-            "should_send": True,
-            "reason": "always_snapshot",
-            "unchanged_cycles": next_unchanged,
-        }
-    if not has_sent_once:
-        return {
-            "changed": changed,
-            "should_send": True,
-            "reason": "first_snapshot",
-            "unchanged_cycles": next_unchanged,
-        }
-    if next_unchanged >= max(1, int(force_send_every_cycles)):
-        return {
-            "changed": changed,
-            "should_send": True,
-            "reason": "force_send_cycle",
-            "unchanged_cycles": next_unchanged,
-        }
-    return {
-        "changed": changed,
-        "should_send": changed,
-        "reason": "snapshot_changed" if changed else "no_change",
-        "unchanged_cycles": next_unchanged,
-    }
-
-
-def build_idempotency_key(
-    company_id: int, scanner_type: str, event_type: str, snapshot_signature: str
-) -> str:
-    raw = f"{company_id}:{scanner_type}:{event_type}:{snapshot_signature}"
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"

@@ -10,7 +10,7 @@ from typing import Any, Dict
 from collector import UptimeKumaCollector
 from config import load_config
 from deliver import deliver, write_json
-from snapshot import build_snapshot_signature, decide_snapshot_send
+from snapshot import build_idempotency_key, build_snapshot_signature, decide_snapshot_send
 from summarizer import build_findings, build_report
 
 UPTIMEKUMA_BANNER = r"""
@@ -56,12 +56,6 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
     tmp.replace(path)
-
-
-def build_idempotency_key(company_id: int, scanner_type: str, event_type: str, snapshot_signature: str) -> str:
-    raw = f"{company_id}:{scanner_type}:{event_type}:{snapshot_signature}"
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"
 
 
 def run_once(cfg, collector: UptimeKumaCollector, state: Dict[str, Any]) -> Dict[str, Any]:

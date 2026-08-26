@@ -72,12 +72,13 @@ def load_config() -> Config:
     # Backend TxDxAI
     output_mode = (os.getenv("ZABBIX_OUTPUT_MODE") or os.getenv("OUTPUT_MODE") or "all").strip().lower()
     webhook_url = os.getenv("TXDXAI_INGEST_URL") or os.getenv("WEBHOOK_URL")
-    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID", "8"))
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or os.getenv("COMPANY_ID") or "0")
     tenant_id = int(os.getenv("TXDXAI_TENANT_ID") or company_id)
     api_key = (
         os.getenv("TXDXAI_API_KEY_ZABBIX")
         or os.getenv("TXDXAI_API_KEY")
-        or os.getenv("API_KEY", "local_test_key")
+        or os.getenv("API_KEY")
+        or ""
     )
 
     state_raw = os.getenv("ZABBIX_STATE_FILE") or os.getenv("STATE_FILE") or os.getenv("STATE_PATH", "state.json")
@@ -132,6 +133,10 @@ def load_config() -> Config:
         raise SystemExit("Falta ZABBIX_API_TOKEN o ZABBIX_USER+ZABBIX_PASS.")
     if output_mode not in {"stdout", "webhook", "all"}:
         raise SystemExit("ZABBIX_OUTPUT_MODE/OUTPUT_MODE debe ser stdout, webhook o all.")
+    if output_mode in {"webhook", "all"} and (tenant_id <= 0 or company_id <= 0):
+        raise SystemExit("Falta TXDXAI_TENANT_ID/TXDXAI_COMPANY_ID (>0) para OUTPUT_MODE=webhook/all.")
+    if output_mode in {"webhook", "all"} and not api_key:
+        raise SystemExit("Falta TXDXAI_API_KEY_ZABBIX/TXDXAI_API_KEY/API_KEY para OUTPUT_MODE=webhook/all.")
 
     return Config(
         base_dir=base_dir,

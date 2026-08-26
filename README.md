@@ -55,6 +55,7 @@ Usa un `.env` en la raiz del MAD. Esa es la unica fuente oficial de configuracio
 
 ```bash
 cd /root/DESARROLLO/MAD-SOPHIA-OP
+cp .env.example .env
 nano .env
 ```
 
@@ -64,14 +65,16 @@ Variables comunes:
 
 ```env
 TXDXAI_INGEST_URL=https://xvwg3cvl6b.execute-api.us-east-1.amazonaws.com/scans/upload-url
-TXDXAI_TENANT_ID=8
-TXDXAI_COMPANY_ID=8
+TXDXAI_TENANT_ID=7
+TXDXAI_COMPANY_ID=7
 OUTPUT_MODE=all
 MAD_VERSION=2.3.0
 SOURCE=mad-collector
 QUEUE_ENABLED=true
 QUEUE_FLUSH_MAX=20
 ```
+
+Para Mi Fibra usa `tenant_id=7` y `company_id=7`. `tenant_id=8` corresponde a `XOC APPLIANCE`, no a Mi Fibra.
 
 Agent API keys por integracion:
 
@@ -499,6 +502,6 @@ El `Dockerfile` actual referencia `app.py`, pero `app.py` no existe en este repo
 ## Buenas Practicas
 
 - No subir `.env` ni secretos al repo.
-- Versionar solo `.env.example`.
+- Versionar solo el `.env.example` de la raiz (unico archivo de ejemplo de configuracion).
 - Rotar credenciales si fueron expuestas en logs, chats o commits.
 - Mantener `runtime/`, logs, colas y artifacts fuera de git.

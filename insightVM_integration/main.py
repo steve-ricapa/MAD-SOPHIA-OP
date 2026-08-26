@@ -147,6 +147,11 @@ def execute_run(args, log, general_cfg, backend_cfg, state_manager) -> None:
     assets = ins_data.get("assets", []) or []
     findings = ins_data.get("findings", []) or []
 
+    ins_raw = raw.get("insightvm") or {}
+    if ins_raw.get("error") or (isinstance(ins_raw.get("assets"), dict) and ins_raw["assets"].get("error")):
+        log.error("InsightVM collection failed, skipping delivery.")
+        return
+
     if not backend_cfg.url:
         log.info("No backend URL configured. Skipping delivery.")
         return

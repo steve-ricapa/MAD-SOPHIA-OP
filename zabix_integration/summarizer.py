@@ -109,7 +109,7 @@ def summarize(
             findings.append({
                 "name": description,
                 "severity": sev_label,
-                "event_kind": "problem" if is_active else "recovery",
+                "event_type": "problem" if is_active else "recovery",
                 "status": "active" if is_active else "resolved",
                 "host": f"{host_name} ({data['ip']})",
                 "host_id": str(data.get("host_id", "")),
@@ -150,7 +150,7 @@ def summarize(
             findings.append({
                 "name": f"Rule Group ({sev_label}): {host_name}",
                 "severity": sev_label,
-                "event_kind": "health_summary",
+                "event_type": "health_summary",
                 "status": "active",
                 "host": f"{host_name} ({data['ip']})",
                 "host_id": str(data.get("host_id", "")),

@@ -15,7 +15,7 @@ from src.api import WazuhApiClient
 from src.aggregator import Aggregator
 from src.state import StateStore
 from src.sender import Sender
-from snapshot import build_snapshot_signature, decide_snapshot_send
+from snapshot import build_idempotency_key, build_snapshot_signature, decide_snapshot_send
 
 
 WAZUH_BANNER = r"""
@@ -365,8 +365,7 @@ async def poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id,
             unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
             snapshot_mode = "always" if app_cfg["snapshot_always_send"] else "delta_with_periodic_forced"
 
-            idempotency_digest = hashlib.sha256(current_signature.encode("utf-8")).hexdigest()
-            idempotency_key = f"sha256:{idempotency_digest}"
+            idempotency_key = build_idempotency_key(company_id, "wazuh", "vuln_scan_report", current_signature)
 
             state.update_checkpoint("snapshot_signature", current_signature)
             state.update_checkpoint("unchanged_cycles", str(unchanged_cycles))
@@ -558,7 +557,7 @@ async def main():
 
     load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
-    company_id = int(os.getenv("TXDXAI_COMPANY_ID", 8))
+    company_id = int(os.getenv("TXDXAI_COMPANY_ID") or "0")
     tenant_id = int(os.getenv("TXDXAI_TENANT_ID", company_id))
     api_key = (
         os.getenv("TXDXAI_API_KEY_WAZUH")

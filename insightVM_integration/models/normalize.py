@@ -191,6 +191,10 @@ def normalize_insightvm_source(raw: Dict[str, Any]) -> SourceResult:
     assets_raw = raw.get("assets")
     vulns_raw = raw.get("vulnerabilities")
 
+    if isinstance(assets_raw, dict) and assets_raw.get("error") and not isinstance(assets_raw.get("resources"), list):
+        res.errors.append(AgentError(source="insightvm", message=str(assets_raw.get("error"))))
+        return res
+
     vuln_defs = {}
     for it in _as_list(vulns_raw):
         if isinstance(it, dict) and it.get("id"):

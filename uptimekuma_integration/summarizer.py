@@ -218,7 +218,7 @@ def build_findings(
         finding = {
             "name": f"Uptime Kuma monitor '{monitor.get('name', monitor_id)}' is {current_label.upper()}",
             "severity": severity,
-            "event_kind": "availability_change",
+            "event_type": "availability_change",
             "status": "active" if current_label == "down" else "resolved" if prev_status is not None and current_label == "up" else "unknown",
             "host": _monitor_host(monitor),
             "host_id": str(monitor_id),

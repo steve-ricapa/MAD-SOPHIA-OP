@@ -56,7 +56,7 @@ STATE_PATH   = _env("OPENVAS_STATE_PATH", _env("STATE_PATH", "./state.json")) or
 META_MAX_KB  = _env_int("META_MAX_KB", 256)
 
 TXDXAI_INGEST_URL = _env("TXDXAI_INGEST_URL", "https://xvwg3cvl6b.execute-api.us-east-1.amazonaws.com/scans/upload-url") or "https://xvwg3cvl6b.execute-api.us-east-1.amazonaws.com/scans/upload-url"
-TXDXAI_COMPANY_ID = _env_int("TXDXAI_COMPANY_ID", 8)
+TXDXAI_COMPANY_ID = _env_int("TXDXAI_COMPANY_ID", 0)
 TXDXAI_TENANT_ID = _env_int("TXDXAI_TENANT_ID", TXDXAI_COMPANY_ID)
 TXDXAI_API_KEY    = _env("TXDXAI_API_KEY_OPENVAS", _env("TXDXAI_API_KEY", _env("API_KEY", ""))) or ""
 
