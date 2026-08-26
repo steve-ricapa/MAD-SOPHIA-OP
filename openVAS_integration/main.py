@@ -605,6 +605,7 @@ while True:
                             "scanner_type": "openvas",
                             "status": task_status,
                             "scan_summary": {
+                                "summary_type": "vuln_scan_report",
                                 "scanner_type": "openvas",
                                 "scan_id": report_id,
                                 "scan_name": task_name,

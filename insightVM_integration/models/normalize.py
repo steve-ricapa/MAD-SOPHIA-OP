@@ -159,6 +159,7 @@ def build_insightvm_report(
         "event_type": "vuln_scan_report",
         "scanner_type": "insightvm",
         "scan_summary": {
+            "summary_type": "vuln_scan_report",
             "scanner_type": "insightvm",
             "status": "completed",
             "scanned_at": scanned_at,

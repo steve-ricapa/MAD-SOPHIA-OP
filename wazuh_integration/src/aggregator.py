@@ -83,6 +83,7 @@ class Aggregator:
         severity_levels = trends.get('severity_levels', {})
 
         scan_summary = {
+            "summary_type": "vuln_scan_report",
             "scan_id": config['scan_id'],
             "scan_name": "WazuhC Real-time Sync",
             "status": "completed",

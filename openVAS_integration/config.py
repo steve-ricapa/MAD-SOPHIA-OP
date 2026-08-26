@@ -136,3 +136,6 @@ def validate_config() -> None:
 
     if OUTPUT_MODE == "http" and TXDXAI_TENANT_ID <= 0:
         raise ValueError("OUTPUT_MODE=http requiere TXDXAI_TENANT_ID o TXDXAI_COMPANY_ID > 0")
+
+    if OUTPUT_MODE == "http" and not TXDXAI_API_KEY:
+        raise ValueError("OUTPUT_MODE=http requiere TXDXAI_API_KEY_OPENVAS/TXDXAI_API_KEY/API_KEY no vacío")

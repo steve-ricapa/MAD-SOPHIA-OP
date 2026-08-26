@@ -85,7 +85,7 @@ def load_config() -> Config:
         or ""
     ).strip()
     scanner_type = (os.getenv("UPTIME_SCANNER_TYPE") or os.getenv("SCANNER_TYPE", "uptime_kuma")).strip().lower()
-    event_type = (os.getenv("UPTIME_EVENT_TYPE") or os.getenv("EVENT_TYPE", "vuln_scan_report")).strip()
+    event_type = (os.getenv("UPTIME_EVENT_TYPE") or os.getenv("EVENT_TYPE", "availability")).strip()
 
     poll_interval = int(os.getenv("UPTIME_POLL_INTERVAL_SECONDS") or os.getenv("POLL_INTERVAL_SECONDS", "15"))
     request_timeout = int(os.getenv("UPTIME_REQUEST_TIMEOUT") or os.getenv("REQUEST_TIMEOUT", "30"))

@@ -140,6 +140,7 @@ def build_report(
     total_hosts = sum(int(s.get("hosts_total", 0) or 0) for s in scans)
 
     scan_summary = {
+        "summary_type": "vuln_scan_report",
         "scan_id": scan_id,
         "scan_name": "Nessus Real-time Sync",
         "status": "completed",

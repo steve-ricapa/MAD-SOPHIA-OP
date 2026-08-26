@@ -94,15 +94,19 @@ def load_backend_settings() -> BackendSettings:
     if url and (company_id <= 0 or tenant_id <= 0):
         raise ValueError("TXDXAI_COMPANY_ID/TXDXAI_TENANT_ID debe ser > 0 para enviar al backend")
 
+    api_key = (
+        os.getenv("TXDXAI_API_KEY_INSIGHTVM")
+        or os.getenv("TXDXAI_API_KEY")
+        or os.getenv("API_KEY")
+    )
+    if url and not api_key:
+        raise ValueError("TXDXAI_API_KEY_INSIGHTVM/TXDXAI_API_KEY/API_KEY es requerido para enviar al backend")
+
     return BackendSettings(
         url=url,
         tenant_id=tenant_id,
         company_id=company_id,
-        api_key=(
-            os.getenv("TXDXAI_API_KEY_INSIGHTVM")
-            or os.getenv("TXDXAI_API_KEY")
-            or os.getenv("API_KEY")
-        ),
+        api_key=api_key,
         verify=_truthy(os.getenv("BACKEND_VERIFY_SSL"), True),
         force_send_every_cycles=int(
             os.getenv("INSIGHTVM_FORCE_SEND_EVERY_CYCLES")

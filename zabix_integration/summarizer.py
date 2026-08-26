@@ -198,7 +198,7 @@ def summarize(
         "api_key": api_key,
         "idempotency_key": idempotency_key,
         "scanned_at": scanned_at,
-        "event_type": "vuln_scan_report",
+        "event_type": "noc_health",
         "scanner_type": "zabbix",
         "scan_summary": {
             "scan_id": scan_id,
