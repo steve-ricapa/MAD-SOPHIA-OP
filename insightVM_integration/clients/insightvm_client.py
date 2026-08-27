@@ -72,6 +72,7 @@ class InsightVMClient:
         max_pages: Optional[int] = None,
     ) -> Iterator[Dict[str, Any]]:
         page = 0
+        total_pages = None
         while True:
             if max_pages is not None and page >= max_pages:
                 break
@@ -90,6 +91,12 @@ class InsightVMClient:
                 log.warning("No se encontró la clave '%s' en la respuesta de %s", items_key, endpoint)
                 break
 
+            # Refuerzo con HATEOAS: capturar totalPages la primera vez si viene en la respuesta.
+            if total_pages is None:
+                page_obj = data.get("page")
+                if isinstance(page_obj, dict) and isinstance(page_obj.get("totalPages"), int):
+                    total_pages = page_obj["totalPages"]
+
             log.info("Página %s: Recibidos %s elementos.", page, len(items))
             for it in items:
                 if isinstance(it, dict):
@@ -97,6 +104,10 @@ class InsightVMClient:
 
             if len(items) < size:
                 log.info("Fin de paginación para %s (última página: %s)", endpoint, page)
+                break
+
+            if total_pages is not None and (page + 1) >= total_pages:
+                log.info("Fin de paginación para %s (totalPages=%s)", endpoint, total_pages)
                 break
 
             page += 1
