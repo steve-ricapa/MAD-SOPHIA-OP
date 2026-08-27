@@ -33,6 +33,7 @@ class InsightVMAgent:
             for asset in self.client.get_paged("/assets", size=page_size):
                 data["assets"]["resources"].append(asset)
         except Exception as e:
+            log.error("Error recolectando /assets: %s", e, exc_info=True)
             data["assets"] = {"error": str(e)}
 
         try:
@@ -61,6 +62,7 @@ class InsightVMAgent:
             log.info("Total de definiciones de vulnerabilidades obtenidas: %s", len(vuln_definitions))
 
         except Exception as e:
+            log.error("Error recolectando vulnerabilidades: %s", e, exc_info=True)
             data["vulnerabilities"] = {"error": str(e)}
 
         return data
