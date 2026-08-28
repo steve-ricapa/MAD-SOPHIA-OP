@@ -58,19 +58,36 @@ class InsightVMAgent:
                 except Exception as e:
                     log.warning("No se pudieron obtener vulns para el activo %s: %s", asset_id, e)
 
-        # 3) Catálogo global de vulnerabilidades (1 sola pasada paginada).
+        # 3) Definiciones de vulnerabilidades SOLO de las que están presentes en los assets.
+        #    /vulnerabilities devuelve TODO el catálogo mundial (~300k); NO lo paginamos entero.
+        #    Resolvemos únicamente los IDs únicos encontrados vía GET /vulnerabilities/{id}.
         vuln_definitions: dict = {}
         if assets_ok and asset_vuln_ids:
-            used_ids = {v for ids in asset_vuln_ids.values() for v in ids}
+            used_ids = sorted({v for ids in asset_vuln_ids.values() for v in ids})
             if used_ids:
-                try:
-                    # Todo el catálogo (o solo definiciones por página si fuese enorme).
-                    for v_def in self.client.get_paged("/vulnerabilities", size=size, params={"sort": "id,ASC"}):
-                        if isinstance(v_def, dict) and v_def.get("id") and v_def["id"] in used_ids:
-                            vuln_definitions[v_def["id"]] = v_def
-                except Exception as e:
-                    log.error("Error recolectando /vulnerabilities: %s", e, exc_info=True)
-                    vuln_definitions = {}
+                if len(used_ids) <= size:
+                    for vid in used_ids:
+                        try:
+                            v_def = self.client.get(f"/vulnerabilities/{vid}")
+                            if isinstance(v_def, dict) and v_def.get("id"):
+                                vuln_definitions[v_def["id"]] = v_def
+                            else:
+                                log.warning("Definición vacía para /vulnerabilities/%s", vid)
+                        except Exception as e:
+                            log.warning("No se pudo obtener la definición /vulnerabilities/%s: %s", vid, e)
+                else:
+                    # Respaldo: un catálogo paginado a tamaño máx. si used_ids fuese muy grande.
+                    log.warning(
+                        "used_ids (%s) excede el tamaño de página; usando catálogo paginado.",
+                        len(used_ids),
+                    )
+                    try:
+                        for v_def in self.client.get_paged("/vulnerabilities", size=size, params={"sort": "id,ASC"}):
+                            if isinstance(v_def, dict) and v_def.get("id") and v_def["id"] in used_ids:
+                                vuln_definitions[v_def["id"]] = v_def
+                    except Exception as e:
+                        log.error("Error recolectando /vulnerabilities: %s", e, exc_info=True)
+                        vuln_definitions = {}
 
             data["vulnerabilities"] = {"resources": list(vuln_definitions.values())}
             log.info("Total de definiciones de vulnerabilidades obtenidas: %s", len(vuln_definitions))

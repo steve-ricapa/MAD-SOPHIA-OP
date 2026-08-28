@@ -11,11 +11,11 @@ class DummyClient:
             1: [{"id": "v1"}],
             2: [{"id": "v2"}],
         }
-        self.catalog = [
-            {"id": "v1", "title": "Vuln One", "severity": "Critical"},
-            {"id": "v2", "title": "Vuln Two", "severity": "High"},
-            {"id": "v3", "title": "Vuln Three", "severity": "Low"},
-        ]
+        self.catalog = {
+            "v1": {"id": "v1", "title": "Vuln One", "severity": "Critical"},
+            "v2": {"id": "v2", "title": "Vuln Two", "severity": "High"},
+            "v3": {"id": "v3", "title": "Vuln Three", "severity": "Low"},
+        }
 
     def get_paged(self, endpoint, size=200, params=None, items_key="resources", max_pages=None):
         if endpoint == "/assets":
@@ -26,10 +26,20 @@ class DummyClient:
             for v in self.asset_vulns.get(asset_id, []):
                 yield v
         elif endpoint == "/vulnerabilities":
-            for v in self.catalog:
+            # Respaldo: catálogo paginado completo.
+            for v in self.catalog.values():
                 yield v
         else:
             return
+
+    def get(self, endpoint, params=None):
+        prefix = "/vulnerabilities/"
+        if endpoint.startswith(prefix):
+            vid = endpoint[len(prefix):]
+            if vid in self.catalog:
+                return self.catalog[vid]
+            raise Exception("HTTP 404 -> not found")
+        raise Exception(f"Unhandled get: {endpoint}")
 
 
 def test_insightvm_full_snapshot(monkeypatch):
@@ -48,7 +58,7 @@ def test_insightvm_full_snapshot(monkeypatch):
     assert ids_by_asset[1] == ["v1"]
     assert ids_by_asset[2] == ["v2"]
 
-    # catálogo solo con las definiciones usadas, sin v3 (no referenciado)
+    # solo las definiciones usadas, sin v3 (no referenciado)
     vuln_ids = [v["id"] for v in data["vulnerabilities"]["resources"]]
     assert "v1" in vuln_ids
     assert "v2" in vuln_ids
@@ -71,17 +81,42 @@ def test_insightvm_assets_failure_does_not_crash(monkeypatch):
     assert data["vulnerabilities"] == {"resources": []}
 
 
-def test_insightvm_vuln_fetch_failure(monkeypatch):
-    class VulnFailClient(DummyClient):
-        def get_paged(self, endpoint, size=200, params=None, items_key="resources", max_pages=None):
-            if endpoint == "/vulnerabilities":
-                raise Exception("HTTP 500 -> server error")
-            return super().get_paged(endpoint, size=size, params=params, items_key=items_key, max_pages=max_pages)
+def test_insightvm_missing_def_tolerated(monkeypatch):
+    # Una definición puntual que no existe NO debe crashear el run: se omite y el resto se resuelve.
+    class MissingDefClient(DummyClient):
+        def get(self, endpoint, params=None):
+            if endpoint == "/vulnerabilities/v2":
+                raise Exception("HTTP 404 -> not found")
+            return super().get(endpoint, params=params)
 
     agent = InsightVMAgent()
-    monkeypatch.setattr(agent, "client", VulnFailClient())
+    monkeypatch.setattr(agent, "client", MissingDefClient())
 
     data = agent.run()
 
-    assert isinstance(data["assets"]["resources"], list)
-    assert data["vulnerabilities"] == {"resources": []}
+    vuln_ids = [v["id"] for v in data["vulnerabilities"]["resources"]]
+    assert "v1" in vuln_ids
+    assert "v2" not in vuln_ids
+
+
+def test_insightvm_fallback_catalog_when_many_ids(monkeypatch):
+    # Si used_ids excede el tamaño de página, cae al catálogo paginado como respaldo.
+    class ManyIdsClient(DummyClient):
+        def __init__(self):
+            super().__init__()
+            self.assets = [{"id": i, "ip": f"10.0.0.{i}"} for i in range(1, 3)]
+            self.asset_vulns = {
+                i: [{"id": f"v{i}"} for i in range(1, 300)] for i in (1, 2)
+            }
+            self.catalog = {
+                f"v{i}": {"id": f"v{i}", "title": f"Vuln {i}", "severity": "Low"}
+                for i in range(1, 300)
+            }
+
+    agent = InsightVMAgent()
+    monkeypatch.setattr(agent, "client", ManyIdsClient())
+
+    data = agent.run(page_size=200)
+
+    vuln_ids = [v["id"] for v in data["vulnerabilities"]["resources"]]
+    assert len(vuln_ids) == 299  # v1..v299 (v300 no existe en esta simulación)
