@@ -103,6 +103,11 @@ if [ "$HAVE_FLOCK" -eq 0 ]; then
   echo "[run_hourly] AVISO: 'flock' no disponible; locks desactivados (recomendado: instalar util-linux)." >&2
 fi
 
+# Wazuh aborta por prechecks no criticos a menos que se fuerce lo contrario.
+# Es inofensivo para las demas integraciones (solo Wazuh lo lee); exportar
+# globalmente evita anteponer 'env' al binario python en la invocacion.
+export STARTUP_REQUIRE_ALL_TESTS=false
+
 # Nota: el lock (flock) se abre sobre un archivo por nombre en LOCK_DIR.
 run_one() {
   local name="$1"; shift
@@ -172,10 +177,6 @@ invoke() {
     c="${item#*|}"
     if [ -n "${INV_ONLY:-}" ] && [ "$INV_ONLY" != "$n" ]; then
       continue
-    fi
-    # Wazuh aborta por prechecks no criticos a menos que se fuerce lo contrario.
-    if [ "$n" = "wazuh" ]; then
-      c="env STARTUP_REQUIRE_ALL_TESTS=false $c"
     fi
     if [ -n "$DRY_RUN" ]; then
       echo "[run_hourly] DRY-RUN $n -> $PY $c"
