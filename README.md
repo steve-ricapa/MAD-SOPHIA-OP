@@ -360,9 +360,14 @@ y el resumen del último run en `runtime/logs/last_run.status`.
 
 ```bash
 cd /root/DESARROLLO/MAD-SOPHIA-OP
-INV_ONLY=nessus bash scripts/run_hourly.sh   # solo nessus (debug)
-bash scripts/run_hourly.sh                   # todas
+bash scripts/run_hourly.sh --dry-run       # imprime las 6 que lanzaria, sin ejecutar (validacion)
+INV_ONLY=nessus bash scripts/run_hourly.sh # solo nessus (debug)
+bash scripts/run_hourly.sh                 # todas
 ```
+
+> Si ves `FAIL --once (2, 0s)` o comandos rotos, es un bug antiguo de parseo:
+> haz `git pull` para obtener el fix que parte los comandos por linea (no por espacios)
+> y usa `--dry-run` para confirmar que las 6 se imprimen completas.
 
 ### Forzar el envio de una integracion en una corrida horaria
 

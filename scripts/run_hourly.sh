@@ -16,10 +16,19 @@
 #
 # Uso:
 #   bash scripts/run_hourly.sh            # corre todo
+#   bash scripts/run_hourly.sh --dry-run  # solo imprime que lanzaria, sin ejecutar
 #   INV_ONLY=nessus bash scripts/run_hourly.sh   # solo nessus (debug)
 
 set -u
 
+# --- Argumento opcional --dry-run -------------------------------------------------
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run|-n) export MAD_DRY_RUN=1 ;;
+    *) echo "[run_hourly] Argumento desconocido ignorado: $arg" >&2 ;;
+  esac
+done
+# --- fin dry-run ----------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Rutas
 # ---------------------------------------------------------------------------
@@ -150,10 +159,15 @@ run_list() {
 STAGGER="${MAD_STAGGER_SECONDS:-25}"
 ITEMS="$(run_list)"
 
+# Modo dry-run: solo imprime que lanzaria, sin ejecutar nada.
+DRY_RUN="${MAD_DRY_RUN:-}"
+
 invoke() {
   local item n c i=0 total pids=()
   total="$(printf '%s\n' "$ITEMS" | wc -l)"
-  for item in $ITEMS; do
+  # Parte SOLO por saltos de linea; cada item conserva espacios internos del comando.
+  while IFS= read -r item; do
+    [ -z "$item" ] && continue
     n="${item%%|*}"
     c="${item#*|}"
     if [ -n "${INV_ONLY:-}" ] && [ "$INV_ONLY" != "$n" ]; then
@@ -163,6 +177,11 @@ invoke() {
     if [ "$n" = "wazuh" ]; then
       c="env STARTUP_REQUIRE_ALL_TESTS=false $c"
     fi
+    if [ -n "$DRY_RUN" ]; then
+      echo "[run_hourly] DRY-RUN $n -> $PY $c"
+      i=$((i+1))
+      continue
+    fi
     run_one "$n" $c &
     pids+=("$!")
     i=$((i+1))
@@ -170,7 +189,7 @@ invoke() {
     if [ "$i" -lt "$total" ]; then
       sleep "$STAGGER"
     fi
-  done
+  done <<< "$ITEMS"
   # Agregar codigos de salida: global_failed=1 si alguna fallo.
   local pid rc
   for pid in "${pids[@]}"; do
