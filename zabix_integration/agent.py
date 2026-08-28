@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -251,8 +252,8 @@ def main():
         except Exception as e:
             _log(f"[ERROR] Cycle failure: {str(e)}")
             if args.once:
-                _log("[INFO] Single-run mode failed. Exiting.")
-                break
+                _log("[ERROR] Single-run mode failed. Exiting (non-zero).")
+                sys.exit(1)
             _log(f"[INFO] Retrying in {cfg.backoff_seconds} seconds...")
             time.sleep(cfg.backoff_seconds)
             continue

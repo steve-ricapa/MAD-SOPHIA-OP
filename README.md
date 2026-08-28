@@ -170,7 +170,7 @@ INSIGHTVM_TIMEOUT=30
 INSIGHTVM_VERIFY_SSL=false
 ```
 
-Nota InsightVM: `INSIGHTVM_BASE_URL` debe incluir `/api/3`. Si `/assets?page=0&size=50` da timeout, prueba con `--page-size 1`, `5` o `10`.
+Nota InsightVM: `INSIGHTVM_BASE_URL` debe incluir `/api/3`. Si `/assets?page=0&size=50` da timeout, prueba reducirlo puntualmente con `--page-size 10` o `--insight-timeout 30`.
 
 ## Entrypoints
 
@@ -244,8 +244,10 @@ STARTUP_REQUIRE_ALL_TESTS=false python3 wazuh_integration/main.py --once 2>&1 | 
 InsightVM:
 
 ```bash
-python3 insightVM_integration/main.py --once --page-size 1 --insight-timeout 30 2>&1 | tee run_once_insightvm.log
+python3 insightVM_integration/main.py --once --log-level INFO 2>&1 | tee run_once_insightvm.log
 ```
+
+> Nota: ya NO uses `--page-size 1`. Tras el fix del recolector (definiciones por ID), el default (`--page-size 200`) es el correcto y rápido.
 
 ## Correr En Modo Servicio
 
@@ -264,7 +266,7 @@ Ejemplo InsightVM:
 ```bash
 cd /root/DESARROLLO/MAD-SOPHIA-OP
 source myenv/bin/activate
-python3 insightVM_integration/main.py --page-size 1 --insight-timeout 30
+python3 insightVM_integration/main.py --log-level INFO
 ```
 
 ## Correr Todos A La Vez
@@ -281,7 +283,7 @@ nohup python3 uptimekuma_integration/agent.py > runtime/logs/uptimekuma.log 2>&1
 nohup python3 zabix_integration/agent.py > runtime/logs/zabbix.log 2>&1 &
 nohup python3 openVAS_integration/main.py > runtime/logs/openvas.log 2>&1 &
 nohup env STARTUP_REQUIRE_ALL_TESTS=false python3 wazuh_integration/main.py > runtime/logs/wazuh.log 2>&1 &
-nohup python3 insightVM_integration/main.py --page-size 1 --insight-timeout 30 > runtime/logs/insightvm.log 2>&1 &
+nohup python3 insightVM_integration/main.py --log-level INFO > runtime/logs/insightvm.log 2>&1 &
 ```
 
 Ver procesos:
@@ -311,6 +313,65 @@ pkill -f "openVAS_integration/main.py"
 pkill -f "wazuh_integration/main.py"
 pkill -f "insightVM_integration/main.py"
 ```
+
+## Programacion Horaria (systemd) — Recomendada Para Produccion
+
+Las 6 integraciones corren **una vez por hora** usando `--once` (un solo ciclo).
+Como cada agente ya persiste su `state.json` y usa el **smart-cache** (`decide_snapshot_send` +
+`FORCE_SEND_EVERY_CYCLES`), una invocacion horaria **no reenvia** snapshots sin cambios:
+solo envía cuando la firma cambió, en el primer envío, o en el heartbeat forzado por
+`FORCE_SEND_EVERY_CYCLES`. No hace falta modo servicio continuo.
+
+### Instalacion (una sola vez, en el servidor)
+
+Archivos de referencia versionados en `scripts/`:
+
+- `scripts/run_hourly.sh` — orquestador (detecta el venv, `flock` por integración,
+  escalona lanzamientos, devuelve exit != 0 si algo falla).
+- `scripts/mad-6x.service` — unit `Type=oneshot` que ejecuta el script.
+- `scripts/mad-6x.timer` — dispara cada hora en punto con `Persistent=true`.
+
+Copia los units a systemd (ajusta la ruta del repo en el `.service` si difiere):
+
+```bash
+cd /root/DESARROLLO/MAD-SOPHIA-OP
+cp scripts/mad-6x.service scripts/mad-6x.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now mad-6x.timer
+```
+
+### Comandos utiles
+
+```bash
+systemctl start mad-6x.timer        # disparar ya (una recoleccion)
+systemctl list-timers mad-6x        # ver proxima ejecucion
+systemctl status mad-6x.timer       # estado del timer
+systemctl status mad-6x.service     # estado de la ultima recoleccion (failed si algo fallo)
+journalctl -u mad-6x.service -f     # logs del service
+```
+
+### Logs de cada integracion
+
+El script escribe en `runtime/logs/<nombre>.log` (con rotacion interna a ~5MB/5 archivos):
+`nessus.log`, `uptimekuma.log`, `zabbix.log`, `openvas.log`, `wazuh.log`, `insightvm.log`,
+y el resumen del último run en `runtime/logs/last_run.status`.
+
+### Probar una sola integracion sin esperar la hora
+
+```bash
+cd /root/DESARROLLO/MAD-SOPHIA-OP
+INV_ONLY=nessus bash scripts/run_hourly.sh   # solo nessus (debug)
+bash scripts/run_hourly.sh                   # todas
+```
+
+### Forzar el envio de una integracion en una corrida horaria
+
+```bash
+NESSUS_SNAPSHOT_ALWAYS_SEND=true bash scripts/run_hourly.sh
+```
+
+> El orquestador usa el Python del venv del repo (`myenv/` o `venv/`) o `python3` global,
+> y define `STARTUP_REQUIRE_ALL_TESTS=false` para Wazuh automaticamente.
 
 ## Logs Y Artifacts
 
@@ -407,7 +468,7 @@ WAZUH_SNAPSHOT_ALWAYS_SEND=true STARTUP_REQUIRE_ALL_TESTS=false python3 wazuh_in
 InsightVM:
 
 ```bash
-INSIGHTVM_SNAPSHOT_ALWAYS_SEND=true python3 insightVM_integration/main.py --once --page-size 1 --insight-timeout 30
+INSIGHTVM_SNAPSHOT_ALWAYS_SEND=true python3 insightVM_integration/main.py --once --log-level INFO
 ```
 
 ## Validacion Esperada
@@ -432,7 +493,7 @@ Nessus muestra:
 Report prepared | scans=... findings=... sent=True queued=False
 ```
 
-InsightVM correcto con pagina chica:
+InsightVM correcto:
 
 ```text
 Fin de paginacion para /assets
@@ -458,8 +519,8 @@ Falta NESSUS_BASE_URL en .env o estas ejecutando con variables no cargadas.
 InsightVM timeout en `/assets`:
 
 ```text
-Prueba --page-size 1 --insight-timeout 30.
-Si page-size 50 falla y page-size 1 funciona, InsightVM responde lento con paginas grandes.
+Si pagina por defecto responde lento, prueba reducirlo puntualmente con --page-size 10 --insight-timeout 30.
+NO uses --page-size 1 en el orquestador horario (ver seccion de programacion).
 ```
 
 Wazuh precheck falla pero el Indexer responde:

@@ -47,6 +47,7 @@ Thumbs.db
 # -----------------------------
 # Runtime artifacts (integrations)
 # -----------------------------
+runtime/logs/
 nessus_integration/queue/
 nessus_integration/state.json
 nessus_integration/debug_report.json

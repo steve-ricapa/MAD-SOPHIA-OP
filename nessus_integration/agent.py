@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -196,6 +197,9 @@ def main() -> None:
             break
         except Exception as exc:
             print(f"[ERROR] Cycle failure: {exc}")
+            if args.once:
+                print("[ERROR] Single-run mode failed. Exiting (non-zero).")
+                sys.exit(1)
             time.sleep(cfg.backoff_seconds)
 
         if args.once:

@@ -1,0 +1,13 @@
+[Unit]
+Description=Dispare la recoleccion horaria de las 6 integraciones MAD-SOPHIA-OP
+Requires=mad-6x.service
+
+[Timer]
+Unit=mad-6x.service
+# Cada hora en punto. Persistent=true ejecuta lo pendiente si la maquina estaba apagada.
+OnCalendar=*-*-* *:00:00
+Persistent=true
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
