@@ -26,6 +26,9 @@ Agente Python para consumir datos de Nessus, normalizarlos al formato unificado 
 - `POLL_INTERVAL_SECONDS` (default: `60`)
 - `FORCE_SEND_EVERY_CYCLES` (default: `10`)
 - `INCLUDE_ALL_FINDINGS` (default: `true`)
+- `NESSUS_ENABLE_EXPORT` (default: `true`): exporta cada scan (`/scans/{id}/export`, formato `nessus`) y parsea CVE, CVSS v2/v3, host, puerto y solución reales por hallazgo. Si falla, vuelve al resumen (`/scans/{id}`) con valores por defecto.
+- `NESSUS_EXPORT_POLL_SECONDS` (default: `5`): intervalo de espera entre estados del export.
+- `NESSUS_EXPORT_POLL_ATTEMPTS` (default: `24`): reintentos para que el export pase a `ready`.
 - `QUEUE_ENABLED` (default: `true`)
 - `QUEUE_DIR` (default: `queue`)
 - `QUEUE_FLUSH_MAX` (default: `20`)

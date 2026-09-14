@@ -4,6 +4,11 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+try:
+    from defusedxml import ElementTree as _ET
+except ImportError:
+    import xml.etree.ElementTree as _ET
+
 from config import Config
 
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -12,6 +17,85 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 def _backoff_with_jitter(base_seconds: int, attempt: int, max_wait: int = 60) -> float:
     exp_wait = min(max_wait, max(1, base_seconds) * (2 ** max(0, attempt - 1)))
     return exp_wait + random.uniform(0, 0.5 * exp_wait)
+
+
+def _child_text(elem, tag: str) -> str:
+    child = elem.find(tag)
+    if child is None:
+        return ""
+    return (child.text or "").strip()
+
+
+def _collect_cves(item) -> List[str]:
+    out: List[str] = []
+    for child in item.findall("cve"):
+        value = (child.text or "").strip()
+        if value:
+            out.append(value)
+    return sorted(set(out))
+
+
+def _optional_float(elem, tag: str) -> Optional[float]:
+    raw = _child_text(elem, tag)
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_nessus_export(xml_text: str) -> List[Dict[str, Any]]:
+    root = _ET.fromstring(xml_text)
+    findings: List[Dict[str, Any]] = []
+
+    for host_elem in root.iter("ReportHost"):
+        hostname = (host_elem.get("name") or "").strip()
+        ip = ""
+        for tag in host_elem.iter("tag"):
+            tag_name = (tag.get("name") or "").strip().lower()
+            if tag_name in {"host-ip", "host_ip"}:
+                ip = (tag.text or "").strip()
+                if ip:
+                    break
+
+        for item in host_elem.iter("ReportItem"):
+            try:
+                plugin_id = int(item.get("pluginID"))
+            except (TypeError, ValueError):
+                continue
+            severity = int(item.get("severity", "0") or "0")
+            port = str(item.get("port", "0") or "0")
+            protocol = str(item.get("protocol", "") or "")
+            svc_name = str(item.get("svc_name", "") or "")
+            cves = _collect_cves(item)
+
+            findings.append(
+                {
+                    "plugin_id": plugin_id,
+                    "plugin_name": str(item.get("pluginName", "") or ""),
+                    "severity": severity,
+                    "count": 1,
+                    "host": hostname,
+                    "hostname": hostname,
+                    "ip": ip,
+                    "port": port,
+                    "protocol": protocol,
+                    "svc_name": svc_name,
+                    "cve": ", ".join(cves),
+                    "cves": cves,
+                    "cvss_base_score": _optional_float(item, "cvss_base_score"),
+                    "cvss_vector": _child_text(item, "cvss_vector"),
+                    "cvss3_base_score": _optional_float(item, "cvss3_base_score"),
+                    "cvss3_vector": _child_text(item, "cvss3_vector"),
+                    "solution": _child_text(item, "solution"),
+                    "synopsis": _child_text(item, "synopsis"),
+                    "description": _child_text(item, "description"),
+                    "plugin_output": _child_text(item, "plugin_output"),
+                }
+            )
+
+    return findings
 
 
 class NessusCollector:
@@ -26,7 +110,13 @@ class NessusCollector:
             }
         )
 
-    def _request(self, method: str, path: str) -> Dict[str, Any]:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        json: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+    ) -> Any:
         url = f"{self.cfg.api_root}{path}"
         last_error: Optional[Exception] = None
         max_attempts = max(self.cfg.http_retries, 1)
@@ -36,11 +126,14 @@ class NessusCollector:
                 response = self.session.request(
                     method=method,
                     url=url,
+                    json=json,
                     timeout=self.cfg.request_timeout,
                     verify=self.cfg.verify_ssl,
                 )
 
                 if 200 <= response.status_code < 300:
+                    if raw:
+                        return response.content
                     data = response.json()
                     if isinstance(data, dict):
                         return data
@@ -77,6 +170,50 @@ class NessusCollector:
     def get_scan_details(self, scan_id: int) -> Dict[str, Any]:
         return self._request("GET", f"/scans/{scan_id}")
 
+    def export_scan(self, scan_id: int, fmt: str = "nessus") -> Any:
+        data = self._request("POST", f"/scans/{scan_id}/export", json={"format": fmt})
+        file_id = data.get("file")
+        if file_id is None:
+            raise RuntimeError("Respuesta export Nessus no incluye 'file'.")
+        return file_id
+
+    def export_status(self, scan_id: int, file_id: Any) -> Dict[str, Any]:
+        return self._request("GET", f"/scans/{scan_id}/export/{file_id}/status")
+
+    def download_export(self, scan_id: int, file_id: Any) -> str:
+        content = self._request("GET", f"/scans/{scan_id}/export/{file_id}/download", raw=True)
+        if isinstance(content, bytes):
+            return content.decode("utf-8", errors="replace")
+        return str(content)
+
+    def _enrich_scan_vulns(self, scan_id: int, vulns: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+        if not vulns:
+            return None
+        if not getattr(self.cfg, "nessus_export", True):
+            return None
+        try:
+            file_id = self.export_scan(scan_id)
+            attempts = int(getattr(self.cfg, "nessus_export_poll_attempts", 24) or 1)
+            poll_wait = float(getattr(self.cfg, "nessus_export_poll_seconds", 5) or 1)
+            ready = False
+            for _ in range(attempts):
+                status = str(self.export_status(scan_id, file_id).get("status", "")).strip().lower()
+                if status in {"ready", "complete", "completed"}:
+                    ready = True
+                    break
+                time.sleep(poll_wait)
+            if not ready:
+                print(f"[WARN] Nessus export {scan_id} no listo tras {attempts} intentos. fallback resumen.")
+                return None
+            parsed = parse_nessus_export(self.download_export(scan_id, file_id))
+            if not parsed:
+                print(f"[WARN] Nessus export {scan_id} sin items parseables. fallback resumen.")
+                return None
+            return parsed
+        except Exception as exc:
+            print(f"[WARN] Nessus export {scan_id} fallo: {exc}. fallback resumen.")
+            return None
+
     def _status_allowed(self, status: str) -> bool:
         # Sync only completed/imported scans to avoid partial/inconsistent findings.
         allowed = {"completed", "imported"}
@@ -112,6 +249,10 @@ class NessusCollector:
             info = details.get("info", {}) if isinstance(details.get("info"), dict) else {}
             vulnerabilities = details.get("vulnerabilities", []) if isinstance(details.get("vulnerabilities"), list) else []
             hosts = details.get("hosts", []) if isinstance(details.get("hosts"), list) else []
+
+            enriched = self._enrich_scan_vulns(scan_id, vulnerabilities)
+            if enriched is not None:
+                vulnerabilities = enriched
 
             collected.append(
                 {

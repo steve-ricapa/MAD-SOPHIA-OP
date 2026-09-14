@@ -20,6 +20,27 @@ def _severity_from_nessus(sev: Any) -> Tuple[str, float]:
     return SEVERITY_MAP.get(key, ("info", 0.0))
 
 
+def _pick_cvss(vuln: Dict[str, Any], default_cvss: float) -> float:
+    for key in ("cvss3_base_score", "cvss_base_score"):
+        raw = vuln.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            continue
+    return default_cvss
+
+
+def _pick_cve(vuln: Dict[str, Any]) -> str:
+    raw = vuln.get("cve")
+    if isinstance(raw, list):
+        parts = [str(x).strip() for x in raw if str(x).strip()]
+    else:
+        parts = [x.strip() for x in str(raw or "").split(",") if x.strip()]
+    return ", ".join(sorted(set(parts))) or "N/A"
+
+
 def build_findings(
     scans: List[Dict[str, Any]],
     processed_scans: Dict[str, int],
@@ -67,27 +88,50 @@ def build_findings(
         for vuln in vulns:
             if not isinstance(vuln, dict):
                 continue
-            sev_label, cvss = _severity_from_nessus(vuln.get("severity"))
+            sev_label, default_cvss = _severity_from_nessus(vuln.get("severity"))
             plugin_id = vuln.get("plugin_id")
             plugin_name = vuln.get("plugin_name") or f"Plugin {plugin_id}"
             count = int(vuln.get("count", 1) or 1)
+            cvss = _pick_cvss(vuln, default_cvss)
+            cve = _pick_cve(vuln)
+            host = str(vuln.get("host") or scan.get("targets") or "N/A")
+            port = str(vuln.get("port") or "0")
+            protocol = str(vuln.get("protocol") or "nessus")
+            solution = str(vuln.get("solution") or "").strip() or (
+                "Open the Nessus scan details and apply remediation guidance from the plugin output."
+            )
+            synopsis = str(vuln.get("synopsis") or "").strip()
+            description = str(vuln.get("description") or "").strip() or (
+                "Potential exposure identified by Nessus plugin checks."
+            )
+            plugin_output = str(vuln.get("plugin_output") or "").strip()
+
+            description_parts = [
+                f"Scan '{scan.get('scan_name', scan_id)}' status={scan.get('status')}",
+                f"plugin_id={plugin_id}",
+                f"host={host}",
+                f"port={port}",
+                f"affected_count={count}",
+            ]
+            if plugin_output:
+                description_parts.append(f"plugin_output={plugin_output[:500]}")
+            if synopsis:
+                description_parts.append(f"synopsis={synopsis[:500]}")
+            extra = " | ".join(description_parts)
 
             findings.append(
                 {
                     "name": str(plugin_name),
                     "severity": sev_label,
                     "cvss": cvss,
-                    "cve": "N/A",
+                    "cve": cve,
                     "oid": f"nessus-plugin-{plugin_id}",
-                    "host": scan.get("targets") or "N/A",
-                    "port": "0",
-                    "protocol": "nessus",
-                    "description": (
-                        f"Scan '{scan.get('scan_name', scan_id)}' status={scan.get('status')} | "
-                        f"plugin_id={plugin_id} | affected_count={count}"
-                    ),
-                    "solution": "Open the Nessus scan details and apply remediation guidance from the plugin output.",
-                    "impact": "Potential exposure identified by Nessus plugin checks.",
+                    "host": host,
+                    "port": port,
+                    "protocol": protocol,
+                    "description": extra,
+                    "solution": solution,
+                    "impact": description,
                     "finding_type": "vulnerability_summary",
                     "source_scan_id": scan_id,
                     "occurrence_count": count,
