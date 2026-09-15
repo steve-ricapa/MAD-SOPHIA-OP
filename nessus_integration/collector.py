@@ -45,6 +45,112 @@ def _optional_float(elem, tag: str) -> Optional[float]:
         return None
 
 
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_cve_list(value: Any) -> List[str]:
+    out: List[str] = []
+    if isinstance(value, str):
+        tokens = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        tokens = value
+    else:
+        tokens = []
+    for token in tokens:
+        text = str(token).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def parse_plugin_detail(plugin_id: int, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    info = data.get("info") if isinstance(data, dict) else None
+    if not isinstance(info, dict):
+        info = {}
+    entries = data.get("vulnerabilities") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        entries = []
+
+    plugin_name = str(info.get("plugin_name") or "") or f"Plugin {plugin_id}"
+    cves = _coerce_cve_list(info.get("cve"))
+    cvss2 = _safe_float(info.get("cvss_base_score"))
+    cvss3 = _safe_float(info.get("cvss3_base_score"))
+    solution = str(info.get("solution") or "").strip()
+    synopsis = str(info.get("synopsis") or "").strip()
+    description = str(info.get("description") or "").strip()
+
+    findings: List[Dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        hostname = str(entry.get("hostname") or "").strip()
+        ip = str(entry.get("ip") or "").strip()
+        host = hostname or ip or "N/A"
+        port = str(entry.get("port") or "0")
+        protocol = str(entry.get("protocol") or "").strip()
+        svc_name = str(entry.get("svc_name") or "").strip()
+        sev_raw = entry.get("severity")
+        if sev_raw is None:
+            sev_raw = info.get("severity")
+        findings.append(
+            {
+                "plugin_id": plugin_id,
+                "plugin_name": plugin_name,
+                "severity": int(sev_raw or 0),
+                "count": 1,
+                "host": host,
+                "hostname": hostname,
+                "ip": ip,
+                "port": port,
+                "protocol": protocol,
+                "svc_name": svc_name,
+                "cve": ", ".join(cves),
+                "cves": cves,
+                "cvss_base_score": cvss2,
+                "cvss_vector": str(info.get("cvss_vector") or "").strip(),
+                "cvss3_base_score": cvss3,
+                "cvss3_vector": str(info.get("cvss3_vector") or "").strip(),
+                "solution": solution,
+                "synopsis": synopsis,
+                "description": description,
+                "plugin_output": str(entry.get("plugin_output") or "").strip(),
+            }
+        )
+
+    if not findings:
+        findings.append(
+            {
+                "plugin_id": plugin_id,
+                "plugin_name": plugin_name,
+                "severity": int(info.get("severity") or 0),
+                "count": 1,
+                "host": "N/A",
+                "hostname": "",
+                "ip": "",
+                "port": "0",
+                "protocol": "",
+                "svc_name": "",
+                "cve": ", ".join(cves),
+                "cves": cves,
+                "cvss_base_score": cvss2,
+                "cvss_vector": str(info.get("cvss_vector") or "").strip(),
+                "cvss3_base_score": cvss3,
+                "cvss3_vector": str(info.get("cvss3_vector") or "").strip(),
+                "solution": solution,
+                "synopsis": synopsis,
+                "description": description,
+                "plugin_output": str(info.get("plugin_output") or "").strip(),
+            }
+        )
+    return findings
+
+
 def parse_nessus_export(xml_text: str) -> List[Dict[str, Any]]:
     root = _ET.fromstring(xml_text)
     findings: List[Dict[str, Any]] = []
@@ -214,6 +320,35 @@ class NessusCollector:
             print(f"[WARN] Nessus export {scan_id} fallo: {exc}. fallback resumen.")
             return None
 
+    def get_plugin_vulns(self, scan_id: int, plugin_id: int) -> Dict[str, Any]:
+        return self._request("GET", f"/scans/{scan_id}/vulnerabilities/{plugin_id}")
+
+    def _enrich_scan_vulns_detail(self, scan_id: int, vulns: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+        if not vulns:
+            return None
+        if not getattr(self.cfg, "nessus_plugin_detail", True):
+            return None
+        enriched: List[Dict[str, Any]] = []
+        for vuln in vulns:
+            if not isinstance(vuln, dict):
+                continue
+            plugin_id = vuln.get("plugin_id")
+            if isinstance(plugin_id, str) and plugin_id.isdigit():
+                plugin_id = int(plugin_id)
+            if not isinstance(plugin_id, int):
+                continue
+            try:
+                data = self.get_plugin_vulns(scan_id, plugin_id)
+            except Exception as exc:
+                print(f"[WARN] Nessus plugin detail {scan_id}/{plugin_id} fallo: {exc}. fallback resumen.")
+                return None
+            parsed = parse_plugin_detail(plugin_id, data)
+            if parsed:
+                enriched.extend(parsed)
+            else:
+                enriched.append(vuln)
+        return enriched or None
+
     def _status_allowed(self, status: str) -> bool:
         # Sync only completed/imported scans to avoid partial/inconsistent findings.
         allowed = {"completed", "imported"}
@@ -253,6 +388,14 @@ class NessusCollector:
             enriched = self._enrich_scan_vulns(scan_id, vulnerabilities)
             if enriched is not None:
                 vulnerabilities = enriched
+            else:
+                detail = self._enrich_scan_vulns_detail(scan_id, vulnerabilities)
+                if detail is not None:
+                    vulnerabilities = detail
+                    print(
+                        f"[INFO] Nessus scan {scan_id}: enriquecido via plugin detail "
+                        f"({len(detail)} hallazgos, export no disponible)."
+                    )
 
             collected.append(
                 {

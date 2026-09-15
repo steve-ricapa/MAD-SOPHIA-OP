@@ -8,7 +8,7 @@ Agente Python para consumir datos de Nessus, normalizarlos al formato unificado 
 2. Filtra por estado (`completed/imported`) y opcionalmente por `NESSUS_SCAN_IDS` o `NESSUS_FOLDER_ID`.
 3. Obtiene detalles de cada scan (`/scans/{id}`), resume severidades y findings.
 4. Mantiene estado local en `state.json` para detectar cambios de snapshot.
-5. Solicita una URL de subida al backend AWS y sube el snapshot a S3 (`OUTPUT_MODE=webhook|all`) o imprime (`stdout`).
+5. Solicita una URL de subida al backend AWS y sube el snapshot a S3 (`OUTPUT_MODE=webhook|all`), imprime (`stdout`) o previsualiza sin enviar (`--preview`).
 6. Incluye `idempotency_key` por snapshot y cola local en disco para fallos transitorios.
 
 ## Variables de entorno
@@ -29,6 +29,7 @@ Agente Python para consumir datos de Nessus, normalizarlos al formato unificado 
 - `NESSUS_ENABLE_EXPORT` (default: `true`): exporta cada scan (`/scans/{id}/export`, formato `nessus`) y parsea CVE, CVSS v2/v3, host, puerto y solución reales por hallazgo. Si falla, vuelve al resumen (`/scans/{id}`) con valores por defecto.
 - `NESSUS_EXPORT_POLL_SECONDS` (default: `5`): intervalo de espera entre estados del export.
 - `NESSUS_EXPORT_POLL_ATTEMPTS` (default: `24`): reintentos para que el export pase a `ready`.
+- `NESSUS_PLUGIN_DETAIL` (default: `true`): cuando el export no esta disponible (p. ej. editions limitadas como "Essentials Plus" que responden HTTP 400), enriquece cada finding con el detalle por plugin (`/scans/{id}/vulnerabilities/{plugin_id}`) para recuperar CVE, CVSS v2/v3, host, puerto y solución reales.
 - `QUEUE_ENABLED` (default: `true`)
 - `QUEUE_DIR` (default: `queue`)
 - `QUEUE_FLUSH_MAX` (default: `20`)
@@ -55,6 +56,14 @@ python agent.py
 ```bash
 python agent.py --once
 ```
+
+5. Previsualiza el snapshot que se enviaria, sin tocar el backend (fuerza `stdout` aunque `.env` diga `all`; ignora la sobreescritura del `.env`):
+
+```bash
+python agent.py --once --preview
+```
+
+Nota: `.env` se carga con `override=True`, por eso las variables de entorno del shell no pueden dominar a las del archivo. Usa `--preview` (no env vars) para ver el payload sin enviar.
 
 Tambien puedes usar:
 

@@ -32,6 +32,7 @@ class Config:
     nessus_export: bool
     nessus_export_poll_seconds: int
     nessus_export_poll_attempts: int
+    nessus_plugin_detail: bool
     queue_enabled: bool
     queue_dir: Path
     queue_flush_max: int
@@ -113,6 +114,7 @@ def load_config() -> Config:
     nessus_export = _env_bool("NESSUS_ENABLE_EXPORT", True)
     nessus_export_poll_seconds = int(os.getenv("NESSUS_EXPORT_POLL_SECONDS", "5"))
     nessus_export_poll_attempts = int(os.getenv("NESSUS_EXPORT_POLL_ATTEMPTS", "24"))
+    nessus_plugin_detail = _env_bool("NESSUS_PLUGIN_DETAIL", True)
 
     queue_enabled = _env_bool("NESSUS_QUEUE_ENABLED", _env_bool("QUEUE_ENABLED", True))
     queue_flush_max = int(os.getenv("NESSUS_QUEUE_FLUSH_MAX") or os.getenv("QUEUE_FLUSH_MAX", "20"))
@@ -194,6 +196,7 @@ def load_config() -> Config:
         nessus_export=nessus_export,
         nessus_export_poll_seconds=nessus_export_poll_seconds,
         nessus_export_poll_attempts=nessus_export_poll_attempts,
+        nessus_plugin_detail=nessus_plugin_detail,
         queue_enabled=queue_enabled,
         queue_dir=queue_dir,
         queue_flush_max=queue_flush_max,

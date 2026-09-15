@@ -14,7 +14,7 @@ NESSUS_DIR = Path(__file__).resolve().parents[1]
 if str(NESSUS_DIR) not in sys.path:
     sys.path.insert(0, str(NESSUS_DIR))
 
-from collector import NessusCollector
+from collector import NessusCollector, parse_plugin_detail
 
 
 def _cfg(**overrides):
@@ -106,3 +106,73 @@ def test_collect_filters_status_and_limits(monkeypatch):
     assert len(rows) == 1
     assert rows[0]["scan_id"] == 3
     assert rows[0]["status"].lower() == "imported"
+
+
+def test_parse_plugin_detail_extracts_cve_cvss_host_port():
+    data = {
+        "info": {
+            "plugin_id": "5678",
+            "plugin_name": "SSH Weak Key Exchange",
+            "severity": 3,
+            "cvss_base_score": 7.5,
+            "cvss_vector": "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+            "cvss3_base_score": 8.1,
+            "solution": "Upgrade OpenSSH",
+            "synopsis": "SSH allows weak algorithms.",
+            "cve": "CVE-2016-6210,CVE-2016-20012",
+        },
+        "vulnerabilities": [
+            {"hostname": "10.0.0.5", "ip": "10.0.0.5", "port": 22, "protocol": "tcp", "severity": 3,
+             "plugin_output": "output text"},
+        ],
+    }
+
+    findings = parse_plugin_detail(5678, data)
+    assert len(findings) == 1
+    assert findings[0]["cve"] == "CVE-2016-6210, CVE-2016-20012"
+    assert findings[0]["cves"] == ["CVE-2016-6210", "CVE-2016-20012"]
+    assert findings[0]["cvss_base_score"] == 7.5
+    assert findings[0]["cvss3_base_score"] == 8.1
+    assert findings[0]["host"] == "10.0.0.5"
+    assert findings[0]["ip"] == "10.0.0.5"
+    assert findings[0]["port"] == "22"
+    assert findings[0]["protocol"] == "tcp"
+    assert findings[0]["solution"] == "Upgrade OpenSSH"
+    assert findings[0]["plugin_output"] == "output text"
+
+
+def test_parse_plugin_detail_empty_entries_uses_info_severity():
+    data = {
+        "info": {"plugin_name": "Plugin X", "severity": 2, "cve": ""},
+        "vulnerabilities": [],
+    }
+    findings = parse_plugin_detail(999, data)
+    assert len(findings) == 1
+    assert findings[0]["severity"] == 2
+    assert findings[0]["host"] == "N/A"
+    assert findings[0]["cves"] == []
+
+
+def test_collect_falls_back_to_plugin_detail_when_export_unavailable(monkeypatch):
+    collector = NessusCollector(_cfg(max_scans_per_cycle=1))
+    detail_row = {"plugin_id": 5678, "cve": "CVE-2020-1234", "cvss_base_score": 9.8}
+
+    monkeypatch.setattr(
+        collector,
+        "list_scans",
+        lambda: [{"id": 2, "status": "completed", "last_modification_date": 20, "name": "Scan 2"}],
+    )
+    monkeypatch.setattr(
+        collector,
+        "get_scan_details",
+        lambda sid: {
+            "info": {"name": "Scan 2"},
+            "vulnerabilities": [{"plugin_id": 5678, "severity": 3, "count": 1}],
+            "hosts": [],
+        },
+    )
+    monkeypatch.setattr(collector, "_enrich_scan_vulns", lambda _sid, vulns: None)
+    monkeypatch.setattr(collector, "_enrich_scan_vulns_detail", lambda _sid, vulns: [detail_row])
+
+    rows = collector.collect()
+    assert rows[0]["vulnerabilities"] == [detail_row]
