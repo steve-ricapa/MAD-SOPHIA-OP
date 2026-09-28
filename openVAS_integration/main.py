@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import time
 import socket
 import xml.etree.ElementTree as ET
