@@ -287,6 +287,28 @@ Sin una memoria, enviaría duplicados infinitamente.
 | `GVM_PASSWORD` | string | `password` |
 | `GVM_TLS_VERIFY` | `true/false` | `true` |
 
+### 9.4 Auditoría y reporte completo
+
+Para comparar el XML original con el JSON enviado a XOC, el agente conserva un
+paquete por `report_id` en `runtime/openvas/artifacts/reports/<report_id>/`:
+
+- `report.xml`: respuesta original de GVM.
+- `payload.json`: payload construido para XOC.
+- `metadata.json`: hashes, paginación, límites, resultados extraídos y descartes.
+
+Variables relevantes para una captura completa de laboratorio:
+
+| Variable | Valor recomendado | Uso |
+|---|---:|---|
+| `GVM_PAGINATE_REPORT` | `true` | Solicita todas las páginas del reporte |
+| `GVM_REPORT_PAGE_SIZE` | `250` | Resultados por página |
+| `GVM_MAX_PAGES` | `200` | Guarda contra reportes infinitos |
+| `GVM_FINDINGS_MAX` | `0` | No aplica truncamiento local |
+| `OPENVAS_REPORT_ARTIFACTS_DIR` | `reports` | Directorio de paquetes históricos |
+
+El campo `cve` conserva el primer CVE por compatibilidad y `cves` contiene todos
+los CVE válidos encontrados. Si no existe CVE, ambos valores quedan `null` y `[]`.
+
 ---
 
 ## 10. Modos de ejecución

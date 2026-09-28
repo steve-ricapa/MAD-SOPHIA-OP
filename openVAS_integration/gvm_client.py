@@ -48,6 +48,78 @@ def _gmp_status(xml_text: str) -> tuple[str | None, str | None]:
         return None, None
 
 
+def _local_name(tag: str) -> str:
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def _count_result_nodes(xml_text: str) -> int:
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return 0
+    return sum(1 for el in root.iter() if _local_name(el.tag) == "result")
+
+
+def _find_results_container(root: ET.Element):
+    for el in root.iter():
+        if _local_name(el.tag) == "results":
+            return el
+    return None
+
+
+def _merge_report_pages(pages: list[str]) -> str:
+    """Une paginas de un reporte GMP en un solo XML.
+
+    La primera pagina (base) conserva counts/summary; se anexan los <result>
+    de las paginas siguientes al contenedor <results> de la base.
+    """
+    if not pages:
+        return ""
+    if len(pages) == 1:
+        return pages[0]
+
+    try:
+        base = ET.fromstring(pages[0])
+    except Exception:
+        return pages[0]
+
+    container = _find_results_container(base)
+    if container is None:
+        base_root_children = list(base)
+        if base_root_children:
+            container = base_root_children[0]
+        else:
+            return pages[0]
+
+    for page_text in pages[1:]:
+        try:
+            page = ET.fromstring(page_text)
+        except Exception:
+            continue
+        page_container = _find_results_container(page)
+        if page_container is None:
+            continue
+        for child in list(page_container):
+            if _local_name(child.tag) == "result":
+                container.append(child)
+
+    # Registra el namespace como default para que ET serialice con xmlns=...
+    # (sin prefijo ns0:), que es el formato que services._parse_xml espera
+    # antes de su regex de limpieza de namespaces.
+    for el in base.iter():
+        tag = el.tag
+        if isinstance(tag, str) and tag.startswith("{"):
+            uri = tag[1:].split("}", 1)[0]
+            if uri:
+                try:
+                    ET.register_namespace("", uri)
+                except Exception:
+                    pass
+                break
+
+    return ET.tostring(base, encoding="unicode")
+
+
 class GVMClient:
     def __init__(
         self,
@@ -86,6 +158,13 @@ class GVMClient:
         self._gmp_cm = None
         self.gmp = None
         self._plain_sock: socket.socket | None = None
+
+        self.pagination_stats: dict = {
+            "enabled": False,
+            "page_size": 0,
+            "pages": 0,
+            "results_fetched": 0,
+        }
 
         if self.transport in {"tls", "unix"}:
             try:
@@ -226,58 +305,130 @@ class GVMClient:
         except TypeError:
             return self.gmp.get_tasks()  # type: ignore
 
+    def _resolve_page_size(self) -> int:
+        rows_default = min(1000, max(250, _env_int("TOP_N", 50) * 5))
+        rows = _env_int("GVM_REPORT_PAGE_SIZE", _env_int("GVM_REPORT_ROWS", rows_default))
+        return max(1, min(int(rows), 2000))
+
     def get_report(self, report_id: str) -> str:
         if self.transport == "plain":
-            report_id_escaped = escape(report_id or "")
-            rows = min(1000, max(250, _env_int("TOP_N", 50) * 5))
-            attempts = [
-                (
-                    f"<get_reports report_id=\"{report_id_escaped}\" "
-                    f"details=\"1\" "
-                    f"filter=\"rows={rows} first=1 sort-reverse=severity levels=chmlgio\"/>",
-                    "get_reports_response",
-                ),
-                (
-                    f"<get_reports report_id=\"{report_id_escaped}\" "
-                    f"details=\"1\"/>",
-                    "get_reports_response",
-                ),
-                (
-                    f"<get_report report_id=\"{report_id_escaped}\" "
-                    f"details=\"1\"/>",
-                    "get_report_response",
-                ),
-            ]
-            response = ""
-            status = None
-            status_text = None
-            for idx, (request, response_tag) in enumerate(attempts, start=1):
-                response = self._send_plain_gmp(request, response_tag)
-                status, status_text = _gmp_status(response)
-                if status == "200":
-                    return response
-                if self.debug:
-                    print(f"[GVMClient] get_report attempt={idx} status={status} {status_text or ''}")
-            raise RuntimeError(
-                "GMP get_report failed in plain mode: "
-                f"status={status} status_text={status_text or ''} "
-                f"response={response[:300]}"
+            return self._get_report_plain(report_id)
+
+        return self._get_report_gmp(report_id)
+
+    def _get_report_plain(self, report_id: str) -> str:
+        report_id_escaped = escape(report_id or "")
+
+        if _env_bool("GVM_PAGINATE_REPORT", False):
+            page_size = self._resolve_page_size()
+            return self._get_report_plain_paged(report_id_escaped, page_size)
+
+        rows = self._resolve_page_size()
+        attempts = [
+            (
+                f"<get_reports report_id=\"{report_id_escaped}\" "
+                f"details=\"1\" "
+                f"filter=\"rows={rows} first=1 sort-reverse=severity levels=chmlgio\"/>",
+                "get_reports_response",
+            ),
+            (
+                f"<get_reports report_id=\"{report_id_escaped}\" "
+                f"details=\"1\"/>",
+                "get_reports_response",
+            ),
+            (
+                f"<get_report report_id=\"{report_id_escaped}\" "
+                f"details=\"1\"/>",
+                "get_report_response",
+            ),
+        ]
+        response = ""
+        status = None
+        status_text = None
+        for idx, (request, response_tag) in enumerate(attempts, start=1):
+            response = self._send_plain_gmp(request, response_tag)
+            status, status_text = _gmp_status(response)
+            if status == "200":
+                self.pagination_stats = {
+                    "enabled": False,
+                    "page_size": rows,
+                    "pages": 1,
+                    "results_fetched": _count_result_nodes(response),
+                }
+                return response
+            if self.debug:
+                print(f"[GVMClient] get_report attempt={idx} status={status} {status_text or ''}")
+        self.pagination_stats = {
+            "enabled": False,
+            "page_size": rows,
+            "pages": 0,
+            "results_fetched": 0,
+        }
+        raise RuntimeError(
+            "GMP get_report failed in plain mode: "
+            f"status={status} status_text={status_text or ''} "
+            f"response={response[:300]}"
+        )
+
+    def _get_report_plain_paged(self, report_id_escaped: str, page_size: int) -> str:
+        max_pages = max(1, _env_int("GVM_MAX_PAGES", 200))
+        first = 1
+        total_fetched = 0
+        pages_fetched = 0
+        pages_xml: list[str] = []
+
+        for page_idx in range(1, max_pages + 1):
+            request = (
+                f"<get_reports report_id=\"{report_id_escaped}\" "
+                f"details=\"1\" "
+                f"filter=\"rows={page_size} first={first} sort-reverse=severity levels=chmlgio\"/>"
             )
+            response = self._send_plain_gmp(request, "get_reports_response")
+            status, status_text = _gmp_status(response)
             if status != "200":
-                if self.debug:
-                    print(f"[GVMClient] get_report status={status} {status_text or ''} — retrying without filter")
-                bare = (
-                    f"<get_report report_id=\"{report_id_escaped}\" "
-                    f"details=\"1\"/>"
+                self.pagination_stats = {
+                    "enabled": True,
+                    "page_size": page_size,
+                    "pages": pages_fetched,
+                    "results_fetched": total_fetched,
+                }
+                raise RuntimeError(
+                    "GMP get_report pagination failed in plain mode: "
+                    f"status={status} status_text={status_text or ''} "
+                    f"page={page_idx} total_pages={pages_fetched}"
                 )
-                fallback = self._send_plain_gmp(bare, "get_report_response")
-                fb_status, _ = _gmp_status(fallback)
-                if fb_status == "200":
-                    return fallback
-            return response
 
+            on_page = _count_result_nodes(response)
+            pages_xml.append(response)
+            total_fetched += on_page
+            pages_fetched += 1
+
+            if on_page < page_size:
+                break
+
+            if page_idx >= max_pages:
+                self.pagination_stats = {
+                    "enabled": True,
+                    "page_size": page_size,
+                    "pages": pages_fetched,
+                    "results_fetched": total_fetched,
+                }
+                raise RuntimeError(
+                    f"GMP get_report pagination exceeded GVM_MAX_PAGES={max_pages}"
+                )
+            first += page_size
+
+        merged = _merge_report_pages(pages_xml)
+        self.pagination_stats = {
+            "enabled": True,
+            "page_size": page_size,
+            "pages": pages_fetched,
+            "results_fetched": total_fetched,
+        }
+        return merged
+
+    def _get_report_gmp(self, report_id: str) -> str:
         top_n = _env_int("TOP_N", 50)
-
         rows_default = min(1000, max(250, top_n * 5))
         rows = _env_int("GVM_REPORT_ROWS", rows_default)
         rows = max(1, min(int(rows), 2000))
@@ -287,6 +438,60 @@ class GVMClient:
 
         ignore_pagination = _env_bool("GVM_IGNORE_PAGINATION", False)
 
+        if _env_bool("GVM_PAGINATE_REPORT", False):
+            page_size = self._resolve_page_size()
+            max_pages = max(1, _env_int("GVM_MAX_PAGES", 200))
+            first = 1
+            total_fetched = 0
+            pages_fetched = 0
+            pages_xml: list[str] = []
+
+            for page_idx in range(1, max_pages + 1):
+                page_filter = (
+                    f"rows={page_size} first={first} sort-reverse=severity "
+                    f"levels=chmlgio details=1 notes=1 overrides=1"
+                )
+                kwargs = {
+                    "report_id": report_id,
+                    "details": True,
+                    "filter_string": page_filter,
+                }
+                if ignore_pagination:
+                    kwargs["ignore_pagination"] = True
+
+                page_xml = self.gmp.get_report(**kwargs)  # type: ignore
+                if isinstance(page_xml, bytes):
+                    page_xml = page_xml.decode("utf-8", errors="replace")
+
+                on_page = _count_result_nodes(page_xml)
+                pages_xml.append(page_xml)
+                total_fetched += on_page
+                pages_fetched += 1
+
+                if on_page < page_size:
+                    break
+
+                if page_idx >= max_pages:
+                    self.pagination_stats = {
+                        "enabled": True,
+                        "page_size": page_size,
+                        "pages": pages_fetched,
+                        "results_fetched": total_fetched,
+                    }
+                    raise RuntimeError(
+                        f"GMP get_report pagination exceeded GVM_MAX_PAGES={max_pages}"
+                    )
+                first += page_size
+
+            merged = _merge_report_pages(pages_xml)
+            self.pagination_stats = {
+                "enabled": True,
+                "page_size": page_size,
+                "pages": pages_fetched,
+                "results_fetched": total_fetched,
+            }
+            return merged
+
         kwargs = {
             "report_id": report_id,
             "details": True,
@@ -295,4 +500,13 @@ class GVMClient:
         if ignore_pagination:
             kwargs["ignore_pagination"] = True
 
-        return self.gmp.get_report(**kwargs)  # type: ignore
+        xml_out = self.gmp.get_report(**kwargs)  # type: ignore
+        if isinstance(xml_out, bytes):
+            xml_out = xml_out.decode("utf-8", errors="replace")
+        self.pagination_stats = {
+            "enabled": False,
+            "page_size": rows,
+            "pages": 1,
+            "results_fetched": _count_result_nodes(xml_out),
+        }
+        return xml_out

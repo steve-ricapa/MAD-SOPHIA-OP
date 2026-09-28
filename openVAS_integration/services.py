@@ -16,6 +16,8 @@ except Exception:
 import xml.etree.ElementTree as StdET
 import requests
 
+CVE_PATTERN = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.IGNORECASE)
+
 
 def _now() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
@@ -531,6 +533,7 @@ def extract_report_stats(xml_text: str, max_kb: int = 4096) -> dict[str, int]:
         "apps_count": _int(".//report//apps//count"),
         "os_count": _int(".//report//os//count"),
         "ssl_certs_count": _int(".//report//ssl_certs//count"),
+        "results_in_xml": len(_result_nodes(root, xml_text)),
     }
 
 
@@ -556,7 +559,8 @@ def extract_findings(
     *,
     top_n: int = 50,
     text_max: int = 300,
-    max_kb: int = 4096
+    max_kb: int = 4096,
+    diagnostics: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Extrae findings (vulns) desde <result>:
@@ -588,29 +592,16 @@ def extract_findings(
             cvss = _extract_severity_from_result(r)
             severity_str = get_severity_label(cvss)
 
-            # CVEs: solo capturamos el primero para el campo 'cve' del contrato
-            cve_id = None
+            # Conservamos todos los CVE válidos; ``cve`` mantiene compatibilidad.
+            cves: list[str] = []
             if nvt is not None:
                 for ref in nvt.findall(".//ref"):
                     t = (ref.get("type") or "").lower()
                     if t == "cve":
-                        cid = (ref.get("id") or "").strip()
-                        if cid:
-                            cve_id = cid
-                            break
-                
-                if not cve_id:
-                    cve_text = (nvt.findtext("cve", "") or "").strip()
-                    if cve_text:
-                        parts = cve_text.replace(",", " ").split()
-                        for part in parts:
-                            if part.upper().startswith("CVE-"):
-                                cve_id = part.strip()
-                                break
-            
-            # Null handling para CVE
-            if not cve_id:
-                cve_id = "No CVE assigned"
+                        cves.extend(CVE_PATTERN.findall(ref.get("id") or ""))
+                cves.extend(CVE_PATTERN.findall(nvt.findtext("cve", "") or ""))
+            cves = list(dict.fromkeys(cve.upper() for cve in cves))
+            cve_id = cves[0] if cves else None
 
             description_raw = (nvt.findtext("description", "") or "").strip() if nvt is not None else ""
             summary_raw = (nvt.findtext("summary", "") or "").strip() if nvt is not None else ""
@@ -639,6 +630,7 @@ def extract_findings(
                 "severity": severity_str,
                 "cvss": float(cvss),
                 "cve": cve_id,
+                "cves": cves,
                 "oid": nvt_oid,
                 "host": host,
                 "port": port_val,
@@ -650,8 +642,12 @@ def extract_findings(
 
             if finding["name"] and (finding["host"] or nvt_oid):
                 findings.append(finding)
+            elif diagnostics is not None:
+                diagnostics.append({"reason": "missing_name_host_or_oid", "name": name[:120], "oid": nvt_oid})
 
-        except Exception:
+        except Exception as exc:
+            if diagnostics is not None:
+                diagnostics.append({"reason": "extract_exception", "error": type(exc).__name__, "message": str(exc)[:300]})
             continue
 
     # DiagnÃ³stico: si hay resultados del XML pero 0 findings, mostrar por quÃ©
@@ -667,7 +663,9 @@ def extract_findings(
             print(f"[DIAG]   result[{i}]: name='{name[:60]}' host='{host}' port='{port}' nvt_oid='{nvt_oid}' severity='{sev}'")
 
     findings.sort(key=lambda x: float(x.get("cvss", 0.0)), reverse=True)
-    return findings[: max(0, int(top_n))]
+    if int(top_n) <= 0:
+        return findings
+    return findings[: int(top_n)]
 
 
 # -------------------------

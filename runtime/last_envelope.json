@@ -1,0 +1,683 @@
+{
+  "assets": [
+    {
+      "asset_id": "asset:sha256:25e8207625b85c0897b15e92405f27397b917ebe54fbf1aac38f99e8bcee351b",
+      "attributes": {
+        "monitor_type": "dns"
+      },
+      "display_name": "Resolucion DNS google.com",
+      "endpoints": [
+        {
+          "hostname": "google.com",
+          "port": 53
+        }
+      ],
+      "first_observed_at": "2026-08-24T21:37:57Z",
+      "hostname": "google.com",
+      "identity_quality": "derived",
+      "last_observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:373fda492097f9cb253eebba76ede8bfb5f57d24f828345d6ea717d1ba1f3504"
+      },
+      "source_asset_id": "dns|google.com|53||Resolucion DNS google.com"
+    },
+    {
+      "asset_id": "asset:sha256:87ca90b2b3fc39149757c40f9eb9577d65335148bb68f13fbb916e0078a68387",
+      "attributes": {
+        "monitor_type": "http"
+      },
+      "display_name": "Kuma Local (self-check)",
+      "endpoints": [
+        {
+          "protocol": "http",
+          "url": "http://host.docker.internal:3001"
+        }
+      ],
+      "first_observed_at": "2026-08-24T21:37:57Z",
+      "identity_quality": "derived",
+      "last_observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:37eaa6ff9801aa3e3dde7e629e989d02a188d42e28e8f5773b6b48497996a164"
+      },
+      "source_asset_id": "http|||http://host.docker.internal:3001|Kuma Local (self-check)",
+      "url": "http://host.docker.internal:3001"
+    },
+    {
+      "asset_id": "asset:sha256:31686aa279ef8548d3a49f1b18c9db87f282819954cc8350d3cc511cb2ffcfc8",
+      "attributes": {
+        "monitor_type": "http"
+      },
+      "display_name": "GitHub",
+      "endpoints": [
+        {
+          "protocol": "https",
+          "url": "https://github.com"
+        }
+      ],
+      "first_observed_at": "2026-08-24T21:37:57Z",
+      "identity_quality": "derived",
+      "last_observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:763684c7525fbfb2650fb073fb1bbdc011b25f82359122bbffa377642b48dc9a"
+      },
+      "source_asset_id": "http|||https://github.com|GitHub",
+      "url": "https://github.com"
+    },
+    {
+      "asset_id": "asset:sha256:94e2c0f040b7bf5825412148654fb7219ed43b12a721382414d601179fb1c36e",
+      "attributes": {
+        "monitor_type": "http"
+      },
+      "display_name": "Cloudflare",
+      "endpoints": [
+        {
+          "protocol": "https",
+          "url": "https://www.cloudflare.com"
+        }
+      ],
+      "first_observed_at": "2026-08-24T21:37:57Z",
+      "identity_quality": "derived",
+      "last_observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:c0da08a5ddc2753876d729a935b9e1e1ec7d0c06e7523c90a9adf426a7e3d76a"
+      },
+      "source_asset_id": "http|||https://www.cloudflare.com|Cloudflare",
+      "url": "https://www.cloudflare.com"
+    },
+    {
+      "asset_id": "asset:sha256:51bbe91ad391bec02edef81000a0291f8a96eb787ae90c86566197f124c181db",
+      "attributes": {
+        "monitor_type": "http"
+      },
+      "display_name": "Google",
+      "endpoints": [
+        {
+          "protocol": "https",
+          "url": "https://www.google.com"
+        }
+      ],
+      "first_observed_at": "2026-08-24T21:37:57Z",
+      "identity_quality": "derived",
+      "last_observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:5754e74d0191934b9c983057b9c56c1e74233848efa56a7d42e5192f6d68ad1a"
+      },
+      "source_asset_id": "http|||https://www.google.com|Google",
+      "url": "https://www.google.com"
+    },
+    {
+      "asset_id": "asset:sha256:546850af2f0329ea127a2aa729678e6dfc2fd778a958b5b67ccd9e1be3cc0759",
+      "attributes": {
+        "monitor_type": "keyword"
+      },
+      "display_name": "Example.com (keyword)",
+      "endpoints": [
+        {
+          "protocol": "https",
+          "url": "https://example.com"
+        }
+      ],
+      "first_observed_at": "2026-08-24T21:37:57Z",
+      "identity_quality": "derived",
+      "last_observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:16cecc0475968cb633f96197a72040d3daec7c6779ad8dce83a555478959c12a"
+      },
+      "source_asset_id": "keyword|||https://example.com|Example.com (keyword)",
+      "url": "https://example.com"
+    },
+    {
+      "asset_id": "asset:sha256:015fc9f521855819aa689d01ac4891991ac17480ff47316612c64a6d002f1a0f",
+      "attributes": {
+        "monitor_type": "ping"
+      },
+      "display_name": "Cloudflare DNS (ping)",
+      "endpoints": [
+        {
+          "hostname": "1.1.1.1"
+        }
+      ],
+      "first_observed_at": "2026-08-24T21:37:57Z",
+      "hostname": "1.1.1.1",
+      "identity_quality": "derived",
+      "last_observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:dfbbfc0ccfeec838a84c96364facd2f34b1e4de0638aafff69cabd0a95913e3c"
+      },
+      "source_asset_id": "ping|1.1.1.1|||Cloudflare DNS (ping)"
+    },
+    {
+      "asset_id": "asset:sha256:912e241b521d4e36459f47e9c517ae8da92710d7fbab9786218b902b5b3c307a",
+      "attributes": {
+        "monitor_type": "ping"
+      },
+      "display_name": "Google DNS (ping)",
+      "endpoints": [
+        {
+          "hostname": "8.8.8.8"
+        }
+      ],
+      "first_observed_at": "2026-08-24T21:37:57Z",
+      "hostname": "8.8.8.8",
+      "identity_quality": "derived",
+      "last_observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:36d23322710a920a0fd53bc7340d01ed1257df29ad83a43655e64f216017f9a0"
+      },
+      "source_asset_id": "ping|8.8.8.8|||Google DNS (ping)"
+    },
+    {
+      "asset_id": "asset:sha256:26c13209de3cb52ace1c3cc2ec390f4d9d64130c25daf519939f76743c45bbd3",
+      "attributes": {
+        "monitor_type": "port"
+      },
+      "display_name": "DNS Puerto 53 (TCP)",
+      "endpoints": [
+        {
+          "hostname": "1.1.1.1",
+          "port": 53
+        }
+      ],
+      "first_observed_at": "2026-08-24T21:37:57Z",
+      "hostname": "1.1.1.1",
+      "identity_quality": "derived",
+      "last_observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:2db8353317ebbdaa73b9ccc6ed1b0e7e58c4731598fa717e4eccbf632eb2df0f"
+      },
+      "source_asset_id": "port|1.1.1.1|53||DNS Puerto 53 (TCP)"
+    }
+  ],
+  "delivery_id": "delivery:sha256:f61ef802819cf3ab37c81219482883020792bbc076e81e1462737fff568e21f8",
+  "generated_at": "2026-08-24T21:37:57Z",
+  "records": [
+    {
+      "asset_id": "asset:sha256:25e8207625b85c0897b15e92405f27397b917ebe54fbf1aac38f99e8bcee351b",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.availability.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "response_time",
+          "unit": "ms",
+          "value": 18.0
+        }
+      ],
+      "observation_type": "availability",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:486f63ab6f03a3edf942c719483d225102005afe122afb86a0d23a27b0708e66"
+      },
+      "record_id": "record:sha256:691464aa70c0909f7d55557afdb3b793cbb0f9174974d12afd11ba436c5f07ae",
+      "record_type": "observation",
+      "source_object_id": "dns|google.com|53||Resolucion DNS google.com",
+      "status": "up",
+      "target": {
+        "hostname": "google.com",
+        "port": 53
+      }
+    },
+    {
+      "asset_id": "asset:sha256:87ca90b2b3fc39149757c40f9eb9577d65335148bb68f13fbb916e0078a68387",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.availability.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "response_time",
+          "unit": "ms",
+          "value": 37.0
+        }
+      ],
+      "observation_type": "availability",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:b9264cf9fcc41a5af9194c5517f93a9a8f137e4a7ef959966a0f1bc50d27c891"
+      },
+      "record_id": "record:sha256:bd1f275209e2fdd4e8692e43c97763a1bb57e191db5f7ec5f2084129c9db18fb",
+      "record_type": "observation",
+      "source_object_id": "http|||http://host.docker.internal:3001|Kuma Local (self-check)",
+      "status": "up",
+      "target": {
+        "protocol": "http",
+        "url": "http://host.docker.internal:3001"
+      }
+    },
+    {
+      "asset_id": "asset:sha256:31686aa279ef8548d3a49f1b18c9db87f282819954cc8350d3cc511cb2ffcfc8",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.availability.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "response_time",
+          "unit": "ms",
+          "value": 862.0
+        }
+      ],
+      "observation_type": "availability",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:3c2ea5cd41398ca4ad80544539d6bdfa2634e6db948c7ed87f25634e2fe4f006"
+      },
+      "record_id": "record:sha256:ecf77a7b18b16cfdb398b67dc859a2c88e162f696c5d37e7119df83a21c47623",
+      "record_type": "observation",
+      "source_object_id": "http|||https://github.com|GitHub",
+      "status": "up",
+      "target": {
+        "protocol": "https",
+        "url": "https://github.com"
+      }
+    },
+    {
+      "asset_id": "asset:sha256:31686aa279ef8548d3a49f1b18c9db87f282819954cc8350d3cc511cb2ffcfc8",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.certificate.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "cert_days_remaining",
+          "unit": "d",
+          "value": 37.0
+        }
+      ],
+      "observation_type": "certificate",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:ac2697897899f85b6ecb1d6343f1805739aaea25fc46a4dbc94e7cd30a8b68ae"
+      },
+      "record_id": "record:sha256:0843404bedd120e9872f8d5a0ec77477c2e8119ebd10391927e46fd9eb56f651",
+      "record_type": "observation",
+      "source_object_id": "http|||https://github.com|GitHub",
+      "status": "valid"
+    },
+    {
+      "asset_id": "asset:sha256:94e2c0f040b7bf5825412148654fb7219ed43b12a721382414d601179fb1c36e",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.availability.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "response_time",
+          "unit": "ms",
+          "value": 531.0
+        }
+      ],
+      "observation_type": "availability",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:683418e25be8fd904527ea4535213c0b3bcf16130dec1847c6c51d9cc5f77d19"
+      },
+      "record_id": "record:sha256:991de42662a3d33a61669b34aeb4e315a3ed0e686f5cc3d9391ac3f34139c5af",
+      "record_type": "observation",
+      "source_object_id": "http|||https://www.cloudflare.com|Cloudflare",
+      "status": "up",
+      "target": {
+        "protocol": "https",
+        "url": "https://www.cloudflare.com"
+      }
+    },
+    {
+      "asset_id": "asset:sha256:94e2c0f040b7bf5825412148654fb7219ed43b12a721382414d601179fb1c36e",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.certificate.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "cert_days_remaining",
+          "unit": "d",
+          "value": 80.0
+        }
+      ],
+      "observation_type": "certificate",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:a4417241edefd0c2aa44b2f92a526647a13e4c0fc99759275317eee2803ea744"
+      },
+      "record_id": "record:sha256:8259d4ce06760f5841f1c16f7071de855bcbdc31cfed5b8dacf167e5a6326bfb",
+      "record_type": "observation",
+      "source_object_id": "http|||https://www.cloudflare.com|Cloudflare",
+      "status": "valid"
+    },
+    {
+      "asset_id": "asset:sha256:51bbe91ad391bec02edef81000a0291f8a96eb787ae90c86566197f124c181db",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.availability.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "response_time",
+          "unit": "ms",
+          "value": 330.0
+        }
+      ],
+      "observation_type": "availability",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:1985cb588813134c3d170f9401b171ade8de7d3ccda9a89a4f74e200e38768a9"
+      },
+      "record_id": "record:sha256:351041526e4993d970f367d84561b7c2daa76ba465cdafa582a2b1782370b423",
+      "record_type": "observation",
+      "source_object_id": "http|||https://www.google.com|Google",
+      "status": "up",
+      "target": {
+        "protocol": "https",
+        "url": "https://www.google.com"
+      }
+    },
+    {
+      "asset_id": "asset:sha256:51bbe91ad391bec02edef81000a0291f8a96eb787ae90c86566197f124c181db",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.certificate.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "cert_days_remaining",
+          "unit": "d",
+          "value": 65.0
+        }
+      ],
+      "observation_type": "certificate",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:93dc0058ace75dd06b656b7e73a4f38ac9996f231c01fddd779d8d8e81591a67"
+      },
+      "record_id": "record:sha256:3db34ee9d06051544cfeac744023c1ef8cc77016cb6714bbf145624f4394cfc9",
+      "record_type": "observation",
+      "source_object_id": "http|||https://www.google.com|Google",
+      "status": "valid"
+    },
+    {
+      "asset_id": "asset:sha256:546850af2f0329ea127a2aa729678e6dfc2fd778a958b5b67ccd9e1be3cc0759",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.availability.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "response_time",
+          "unit": "ms",
+          "value": 227.0
+        }
+      ],
+      "observation_type": "availability",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:4bdd6111809f614a31f9eda5b290082bc677c5a388ab584389beea213a908873"
+      },
+      "record_id": "record:sha256:6736238a6b57f2f52894bc49b9d61409bf144b762caa051b1440c24bed9796bf",
+      "record_type": "observation",
+      "source_object_id": "keyword|||https://example.com|Example.com (keyword)",
+      "status": "up",
+      "target": {
+        "protocol": "https",
+        "url": "https://example.com"
+      }
+    },
+    {
+      "asset_id": "asset:sha256:546850af2f0329ea127a2aa729678e6dfc2fd778a958b5b67ccd9e1be3cc0759",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.certificate.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "cert_days_remaining",
+          "unit": "d",
+          "value": 64.0
+        }
+      ],
+      "observation_type": "certificate",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:3c3c76917e995eea0aa71fd511a5add76896a70e3eeed904d5bfcd6ec1a604a9"
+      },
+      "record_id": "record:sha256:b419e4dedcf0bd8e9351911cd46bfb1ca988e5d01f084ec69ac642154f6a4a7d",
+      "record_type": "observation",
+      "source_object_id": "keyword|||https://example.com|Example.com (keyword)",
+      "status": "valid"
+    },
+    {
+      "asset_id": "asset:sha256:015fc9f521855819aa689d01ac4891991ac17480ff47316612c64a6d002f1a0f",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.availability.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "response_time",
+          "unit": "ms",
+          "value": 11.8
+        }
+      ],
+      "observation_type": "availability",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:e22d7451432a478b4a793d7e995e9276b549b49a5941a7b92856fb46ba962a43"
+      },
+      "record_id": "record:sha256:b4f4c4c66574950c627c990701730dfc870b860422179cb49fd05ded056e9a19",
+      "record_type": "observation",
+      "source_object_id": "ping|1.1.1.1|||Cloudflare DNS (ping)",
+      "status": "up",
+      "target": {
+        "hostname": "1.1.1.1"
+      }
+    },
+    {
+      "asset_id": "asset:sha256:912e241b521d4e36459f47e9c517ae8da92710d7fbab9786218b902b5b3c307a",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.availability.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "response_time",
+          "unit": "ms",
+          "value": 46.7
+        }
+      ],
+      "observation_type": "availability",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:202a0adea861fcd9fb5f6e0c4c80813e125c5263584eb873583a6f3b68e94803"
+      },
+      "record_id": "record:sha256:0f8109e346a355c71c21e83ee1d82615a9bf8d5c25e8763ac06d63e3e0931acf",
+      "record_type": "observation",
+      "source_object_id": "ping|8.8.8.8|||Google DNS (ping)",
+      "status": "up",
+      "target": {
+        "hostname": "8.8.8.8"
+      }
+    },
+    {
+      "asset_id": "asset:sha256:26c13209de3cb52ace1c3cc2ec390f4d9d64130c25daf519939f76743c45bbd3",
+      "decision": {
+        "decided_at": "2026-08-24T21:37:57Z",
+        "outcome": "accepted",
+        "policy_version": "1.0.0",
+        "reason_code": "uptime_kuma.availability.refresh"
+      },
+      "kind": "refresh",
+      "measurements": [
+        {
+          "name": "response_time",
+          "unit": "ms",
+          "value": 10.0
+        }
+      ],
+      "observation_type": "availability",
+      "observed_at": "2026-08-24T21:37:57Z",
+      "provenance": {
+        "collected_at": "2026-08-24T21:37:57Z",
+        "connector_version": "0.1.0",
+        "mapping_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "raw_record_hash": "sha256:d0b65ba2c4bc9d9e5adb0009626f7e81088a43dfec3d712b177a41d1536bc595"
+      },
+      "record_id": "record:sha256:71630691052b1052faefbb14caeb6e441ab35137d83d56adf259180dd984398c",
+      "record_type": "observation",
+      "source_object_id": "port|1.1.1.1|53||DNS Puerto 53 (TCP)",
+      "status": "up",
+      "target": {
+        "hostname": "1.1.1.1",
+        "port": 53
+      }
+    }
+  ],
+  "run": {
+    "collection_window": {
+      "end": "2026-08-24T21:37:57Z",
+      "start": "2026-08-24T21:37:57Z"
+    },
+    "ended_at": "2026-08-24T21:37:57Z",
+    "error_counts": {},
+    "partial": false,
+    "record_counts": {
+      "accepted": 13,
+      "assets": 9,
+      "detections": 0,
+      "findings": 0,
+      "observations": 13,
+      "quarantined": 0,
+      "rejected": 0
+    },
+    "run_id": "run:f952a1832d0645f98398971cddc3651b",
+    "started_at": "2026-08-24T21:37:57Z",
+    "status": "completed"
+  },
+  "schema_version": "1.0.0",
+  "source": {
+    "display_name": "Uptime Kuma",
+    "instance_id": "kuma-lab",
+    "type": "uptime_kuma"
+  },
+  "tenant_id": "1"
+}
