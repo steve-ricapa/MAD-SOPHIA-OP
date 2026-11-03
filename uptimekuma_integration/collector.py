@@ -1,3 +1,4 @@
+import logging
 import re
 import sqlite3
 import time
@@ -140,7 +141,11 @@ def _safe_json_loads(raw: Optional[str]) -> Dict[str, Any]:
 
 def enrich_with_db(monitors: Dict[str, Dict[str, Any]], db_path: Path) -> Dict[str, Dict[str, Any]]:
     if not db_path.exists():
-        raise FileNotFoundError(f"Configured Uptime Kuma database does not exist: {db_path}")
+        logging.getLogger(__name__).warning(
+            "Uptime Kuma database is missing; continuing with current metrics without "
+            "SQLite enrichment: %s", db_path,
+        )
+        return monitors
 
     monitor_ids = [int(mid) for mid in monitors.keys() if str(mid).isdigit()]
     if not monitor_ids:

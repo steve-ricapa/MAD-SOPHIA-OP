@@ -187,9 +187,13 @@ def check_uptimekuma(cfg, session, repo: Path) -> list[Result]:
         result = [Result("uptimekuma", "read_metrics", "PASS", f"monitors={count}")]
         if cfg.get("UPTIME_KUMA_DB_PATH"):
             db = _resolve(repo / "uptimekuma_integration", cfg["UPTIME_KUMA_DB_PATH"])
-            readable = os.access(db, os.R_OK)
-            result.append(Result("uptimekuma", "database_access", "PASS" if readable else "FAIL",
-                                 "configured_database_readable" if readable else "configured_database_not_readable"))
+            if not db.exists():
+                result.append(Result("uptimekuma", "database_access", "WARN",
+                                     "configured_database_missing; metrics_only_without_sqlite_enrichment"))
+            else:
+                readable = db.is_file() and os.access(db, os.R_OK)
+                result.append(Result("uptimekuma", "database_access", "PASS" if readable else "FAIL",
+                                     "configured_database_readable" if readable else "configured_database_not_readable"))
         return result
     return _run("uptimekuma", "read_metrics", action)
 

@@ -525,11 +525,13 @@ retiraron; el horario no cambio y el timer quedo detenido. Los cambios de
 este commit no estan desplegados automaticamente: el administrador debe
 actualizar a `main`, registrar el commit y seguir el procedimiento siguiente.
 
-**Kuma:** la ruta de SQLite configurada no existe en Nexus. Antes se devolvian
-solo metricas, con `db={}`, y se enviaban campos enriquecidos vacios. Ahora
-una base configurada pero ausente hace fallar el ciclo; no se crea ni escribe
-una base nueva. El administrador debe proporcionar la base real, un montaje
-de lectura adecuado y permisos; cambiar Git no recupera una base inexistente.
+**Kuma:** la ruta de SQLite configurada no existe en Nexus. Si falta la base,
+el colector continua con las metricas actuales, con `db={}`, y registra una
+advertencia explicita de enriquecimiento ausente. El chequeo previo muestra
+`WARN` sin bloquear el envio de metricas; no se crea una base nueva. Si la base
+existe, se abre en modo de solo lectura y sus errores de acceso o esquema
+siguen haciendo fallar el ciclo. Para recuperar el enriquecimiento, el
+administrador debe proporcionar la base real y acceso de lectura adecuado.
 
 **DNS de OpenVAS:** una subida firmada a S3 fallo al resolver el nombre del
 bucket. Siete subidas del mismo ciclo funcionaron, y las consultas limitadas
@@ -674,9 +676,11 @@ Resolver tambien estos puntos fuera de Git:
   actual utilizada por Kuma. En Nexus la URL de Kuma era remota, mientras
   la ruta de SQLite era local. Dar al usuario del servicio lectura y paso
   por los directorios de la base correcta, incluyendo acceso a sus archivos
-  WAL/SHM cuando corresponda. El colector ahora abre SQLite en modo de solo
-  lectura y falla si una base configurada no existe. Quitar la ruta omitiria
-  datos enriquecidos; no usarlo como solucion sin aceptar ese cambio de datos.
+  WAL/SHM cuando corresponda. Si la base no existe, se envian las metricas
+  actuales sin enriquecimiento SQLite y se registra una advertencia. Esto no
+  acredita la recuperacion del enriquecimiento. Si existe, la lectura permanece
+  en modo de solo lectura; resolver sus errores de permisos o esquema antes
+  de ejecutar el ciclo.
 - **InsightVM:** restablecer la ruta/firewall/servicio hacia el host y puerto
   configurados; despues comprobar la autenticacion. Un `git pull` no soluciona
   un `No route to host` ni cambia credenciales vencidas.

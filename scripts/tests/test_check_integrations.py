@@ -223,15 +223,29 @@ def test_wazuh_authenticates_and_reads_agent_summary_without_printing_token():
 
 
 def test_uptime_metrics_auth_and_database_access_only(tmp_path, monkeypatch):
+    database = tmp_path / "kuma.db"
+    database.touch()
     monkeypatch.setattr(preflight.os, "access", lambda *args: False)
     session = Session(Response(text='# HELP monitor_status Status\nmonitor_status{monitor_id="1"} 1\n'))
     cfg = {"UPTIME_KUMA_URL": "http://kuma.example:3001", "UPTIME_KUMA_API_KEY_ID": SECRET,
-           "UPTIME_KUMA_API_KEY": SECRET, "UPTIME_KUMA_DB_PATH": "/protected/kuma.db"}
+           "UPTIME_KUMA_API_KEY": SECRET, "UPTIME_KUMA_DB_PATH": str(database)}
     result = preflight.check_uptimekuma(cfg, session, tmp_path)
     assert session.calls[0][2]["auth"] == (SECRET, SECRET)
     assert next(r for r in result if r.check == "read_metrics").detail == "monitors=1"
     assert next(r for r in result if r.check == "database_access").status == "FAIL"
     assert rendered(result)[0] == 1
+
+
+def test_uptime_missing_database_warns_without_blocking_current_metrics(tmp_path):
+    session = Session(Response(text='monitor_status{monitor_id="1"} 1\n'))
+    missing = tmp_path / "missing.db"
+    cfg = {"UPTIME_KUMA_URL": "http://kuma.example", "UPTIME_KUMA_DB_PATH": str(missing)}
+    result = preflight.check_uptimekuma(cfg, session, tmp_path)
+    database_result = next(r for r in result if r.check == "database_access")
+    assert database_result.status == "WARN"
+    assert "metrics_only_without_sqlite_enrichment" in database_result.detail
+    assert rendered(result)[0] == 0
+    assert not missing.exists()
 
 
 def test_uptime_falls_back_to_configured_username_password(tmp_path):

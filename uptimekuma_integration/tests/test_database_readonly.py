@@ -67,7 +67,7 @@ def test_enrichment_opens_real_database_read_only_with_uri_escaping(kuma_db, mon
     assert hashlib.sha256(kuma_db.read_bytes()).hexdigest() == original_hash
 
 
-def test_missing_configured_database_fails_without_creation(tmp_path, monkeypatch):
+def test_missing_database_preserves_metrics_and_warns_without_creation(tmp_path, monkeypatch, caplog):
     missing = tmp_path / "missing.db"
 
     def unexpected_connect(*args, **kwargs):
@@ -75,20 +75,23 @@ def test_missing_configured_database_fails_without_creation(tmp_path, monkeypatc
 
     monkeypatch.setattr(collector.sqlite3, "connect", unexpected_connect)
 
-    with pytest.raises(FileNotFoundError, match="Uptime Kuma"):
-        collector.enrich_with_db({"1": {"status": 1}}, missing)
+    monitors = {"1": {"status": 1}}
+    assert collector.enrich_with_db(monitors, missing) is monitors
 
     assert not missing.exists()
+    assert "without SQLite enrichment" in caplog.text
 
 
-def test_collect_does_not_return_metrics_when_configured_database_is_missing(tmp_path, monkeypatch):
+def test_collect_returns_current_metrics_when_configured_database_is_missing(tmp_path, monkeypatch, caplog):
     missing = tmp_path / "missing.db"
     instance = collector.UptimeKumaCollector(SimpleNamespace(kuma_db_path=missing))
     monkeypatch.setattr(instance, "fetch_metrics_text", lambda: 'monitor_status{monitor_id="1",monitor_name="test"} 1\n')
 
-    with pytest.raises(FileNotFoundError, match="Uptime Kuma"):
-        instance.collect()
+    result = instance.collect()
 
+    assert result["1"]["status"] == 1
+    assert result["1"]["db"] == {}
+    assert "without SQLite enrichment" in caplog.text
     assert not missing.exists()
 
 
