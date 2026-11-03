@@ -2,6 +2,7 @@ import json
 import pytest
 import sys
 from pathlib import Path
+from urllib3.exceptions import ReadTimeoutError
 
 
 for _module_name in ("services", "snapshot", "gvm_client", "config"):
@@ -329,3 +330,48 @@ def test_format_exception_redacts_full_and_relative_signed_queries(monkeypatch, 
     assert "s3.example/pending/7/snapshot.json" in output
     assert "/pending/7/snapshot.json" in output
     assert ("Stacktrace:" in output) is debug
+
+
+@pytest.mark.parametrize("wrapper_location", ["args", "cause", "context"])
+def test_s3_put_does_not_retry_wrapped_urllib3_read_timeout(monkeypatch, wrapper_location):
+    timeout = ReadTimeoutError(None, "/pending/7/snapshot.json", "response body timed out")
+    error = services.requests.exceptions.ConnectionError("wrapped read timeout")
+    if wrapper_location == "args":
+        error = services.requests.exceptions.ConnectionError(timeout)
+    elif wrapper_location == "cause":
+        error.__cause__ = timeout
+    else:
+        error.__context__ = timeout
+    calls = _upload_with_put_responses(monkeypatch, [error, _Response(200)])
+
+    assert _emit_test_snapshot() is False
+    assert len(calls["post"]) == 1
+    assert len(calls["put"]) == 1
+    assert calls["sleep"] == []
+
+
+def test_s3_put_normal_connection_error_with_cycle_still_retries(monkeypatch):
+    error = services.requests.exceptions.ConnectionError("temporary DNS failure")
+    nested = RuntimeError("nested connection failure")
+    error.__cause__ = nested
+    nested.__context__ = error
+    calls = _upload_with_put_responses(monkeypatch, [error, _Response(200)])
+
+    assert _emit_test_snapshot() is True
+    assert len(calls["put"]) == 2
+    assert calls["sleep"] == [0.5]
+
+
+def test_s3_put_deep_error_chain_is_not_retried(monkeypatch):
+    error = services.requests.exceptions.ConnectionError("deep connection error")
+    nested = error
+    for _ in range(40):
+        cause = RuntimeError("nested cause")
+        nested.__cause__ = cause
+        nested = cause
+    nested.__cause__ = ReadTimeoutError(None, "/pending/snapshot.json", "read timed out")
+    calls = _upload_with_put_responses(monkeypatch, [error, _Response(200)])
+
+    assert _emit_test_snapshot() is False
+    assert len(calls["put"]) == 1
+    assert calls["sleep"] == []

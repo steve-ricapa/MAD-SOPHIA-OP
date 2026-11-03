@@ -28,9 +28,31 @@ if [ "$(git -c safe.directory="$REPO" branch --show-current)" != "main" ]; then
   echo "El despliegue debe estar en main antes de validar." >&2
   exit 2
 fi
-if ! git -c safe.directory="$REPO" -c core.filemode=false diff --quiet || \
-   ! git -c safe.directory="$REPO" -c core.filemode=false diff --cached --quiet; then
-  echo "Hay cambios de contenido locales o preparados para commit; reconciliarlos antes de validar." >&2
+# Los estados, comprobantes y otros datos operativos pueden cambiar en cada ciclo.
+# La validacion exige integridad del codigo y sus plantillas de configuracion.
+SOURCE_PATHS=(
+  ':(glob)**/*.py'
+  ':(glob)**/*.sh'
+  ':(glob)**/*.service'
+  ':(glob)**/*.timer'
+  ':(glob)**/.env.example'
+  ':(glob)**/.env.template'
+  ':(glob)**/requirements*.txt'
+  ':(glob)**/Dockerfile*'
+  ':(glob)**/Makefile'
+  ':(glob)**/*.toml'
+  ':(glob)**/*.ini'
+  ':(glob)**/*.cfg'
+  ':(glob)**/*.conf'
+  ':(glob)**/*.yaml'
+  ':(glob)**/*.yml'
+  ':(top).gitignore'
+  ':(top).dockerignore'
+  ':(glob)wazuh_integration/config_profiles/*.env'
+)
+if ! git -c safe.directory="$REPO" -c core.filemode=false diff --quiet -- "${SOURCE_PATHS[@]}" || \
+   ! git -c safe.directory="$REPO" -c core.filemode=false diff --cached --quiet -- "${SOURCE_PATHS[@]}"; then
+  echo "Hay cambios de codigo o plantillas locales o preparados para commit; reconciliarlos antes de validar." >&2
   exit 2
 fi
 if [ "$(systemctl show "$SERVICE" -p LoadState --value)" != "loaded" ]; then

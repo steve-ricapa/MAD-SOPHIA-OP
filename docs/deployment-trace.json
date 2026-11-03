@@ -39,7 +39,11 @@
     "method": "Preserve deployed Nessus and OpenVAS source enhancements from commit 69cef37 on main, then apply reviewed recovery fixes. Do not import runtime databases, bytecode, logs, production .env or payloads from the feature branch.",
     "production_is_not_automatically_updated": true,
     "administrator_must_deploy_and_verify_commit": true,
-    "production_credentials_are_not_versioned": true
+    "production_credentials_are_not_versioned": true,
+    "candidate_method": "Merge origin/1-rama2madop into a branch based on main, preserving both histories and recovery fixes. Resolve tests by keeping both suites; untrack operational data and bytecode with mandatory host backup/restoration before deployment.",
+    "source_branch_tip": "edb617d30701fe8deedb70edd597356de68665d2",
+    "operational_migration_manifest": "docs/operational-migration.json",
+    "production_data_migration_required_before_activation": true
   },
   "remaining_external_requirements": {
     "uptimekuma": "Configured SQLite path does not exist on Nexus. Supply the correct live database/mount and read permissions; metrics endpoint is on another host. Never silently equate metrics-only data with configured enrichment.",

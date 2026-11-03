@@ -15,6 +15,8 @@ except Exception:
 
 import xml.etree.ElementTree as StdET
 import requests
+from urllib3.exceptions import ReadTimeoutError as Urllib3ReadTimeoutError
+from urllib3.exceptions import SSLError as Urllib3SSLError
 
 CVE_PATTERN = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.IGNORECASE)
 
@@ -682,6 +684,27 @@ def extract_findings(
 # -------------------------
 
 
+def _has_nonretryable_put_cause(error: BaseException) -> bool:
+    """Detect wrapped read/TLS errors without following unbounded or cyclic chains."""
+    pending = [error]
+    seen: set[int] = set()
+    limit = 32
+    while pending and len(seen) < limit:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, (requests.exceptions.ReadTimeout, requests.exceptions.SSLError,
+                                Urllib3ReadTimeoutError, Urllib3SSLError)):
+            return True
+        if len(current.args) > limit:
+            return True
+        linked = (current.__cause__, current.__context__, getattr(current, "reason", None), *current.args)
+        pending.extend(item for item in linked if isinstance(item, BaseException) and id(item) not in seen)
+    # Unknown errors beyond the inspection limit are conservatively not retried.
+    return bool(pending)
+
+
 def _put_snapshot_with_connection_retries(upload_url: str, **kwargs):
     """Retry only connection failures against the same S3 object and payload."""
     for attempt in range(3):
@@ -689,8 +712,8 @@ def _put_snapshot_with_connection_retries(upload_url: str, **kwargs):
             return requests.put(upload_url, **kwargs)
         except (requests.exceptions.SSLError, requests.exceptions.ReadTimeout):
             raise
-        except requests.exceptions.ConnectionError:
-            if attempt == 2:
+        except requests.exceptions.ConnectionError as error:
+            if _has_nonretryable_put_cause(error) or attempt == 2:
                 raise
             delay = 0.5 * (attempt + 1)
             print(f"[{_now()}] S3 PUT connection failure; retry {attempt + 2}/3 in {delay:.1f}s")
