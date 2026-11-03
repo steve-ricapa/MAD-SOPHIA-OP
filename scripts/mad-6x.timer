@@ -1,6 +1,5 @@
 [Unit]
 Description=Dispare la recoleccion horaria de las 6 integraciones MAD-SOPHIA-OP
-Requires=mad-6x.service
 
 [Timer]
 Unit=mad-6x.service

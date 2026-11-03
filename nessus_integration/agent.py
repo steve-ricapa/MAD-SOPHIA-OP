@@ -1,4 +1,5 @@
 import argparse
+import dataclasses
 import hashlib
 import json
 import sys
@@ -177,6 +178,11 @@ def run_once(cfg, collector: NessusCollector, state: Dict[str, Any]) -> Dict[str
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Nessus real-time integration agent")
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Force stdout mode and ignore .env: print payload, do not deliver to backend",
+    )
     return parser.parse_args()
 
 
@@ -185,6 +191,9 @@ def main() -> None:
     print("[INFO] Starting Nessus Real-time Agent...")
     print(NESSUS_BANNER)
     cfg = load_config()
+    if args.preview:
+        cfg = dataclasses.replace(cfg, output_mode="stdout", snapshot_always_send=True)
+        print("[INFO] PREVIEW mode: payload a stdout, sin envio a backend.")
     collector = NessusCollector(cfg)
     state = load_state(cfg.state_path)
 

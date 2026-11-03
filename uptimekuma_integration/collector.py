@@ -140,14 +140,14 @@ def _safe_json_loads(raw: Optional[str]) -> Dict[str, Any]:
 
 def enrich_with_db(monitors: Dict[str, Dict[str, Any]], db_path: Path) -> Dict[str, Dict[str, Any]]:
     if not db_path.exists():
-        return monitors
+        raise FileNotFoundError(f"Configured Uptime Kuma database does not exist: {db_path}")
 
     monitor_ids = [int(mid) for mid in monitors.keys() if str(mid).isdigit()]
     if not monitor_ids:
         return monitors
 
     placeholders = ",".join(["?"] * len(monitor_ids))
-    con = sqlite3.connect(str(db_path))
+    con = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
 

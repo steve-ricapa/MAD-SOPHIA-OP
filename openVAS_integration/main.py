@@ -1,9 +1,11 @@
-﻿import os
+import os
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 import argparse
 import hashlib
 import json
+import math
+import re
 import time
 import socket
 import xml.etree.ElementTree as ET
@@ -18,9 +20,10 @@ from config import (
     COLLECTOR, POLL_SECONDS, FORCE_SEND_EVERY_CYCLES, SNAPSHOT_ALWAYS_SEND, STATE_PATH, META_MAX_KB,
     GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD, GVM_SOCKET, GVM_TRANSPORT,
     GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_TIMEOUT,
+    GVM_PAGINATE_REPORT, GVM_REPORT_PAGE_SIZE, GVM_MAX_PAGES, FINDINGS_MAX,
     DEBUG, MAX_ERROR_REPEAT, DETAIL_LEVEL, TOP_N, REPORT_MAX_KB, FINDING_TEXT_MAX,
     STATE_TTL_DAYS, STATE_MAX_ITEMS,
-    MAD_VERSION, OPENVAS_INTEGRATION_VERSION, SOURCE, ARTIFACTS_DIR,
+    MAD_VERSION, OPENVAS_INTEGRATION_VERSION, SOURCE, ARTIFACTS_DIR, REPORT_ARTIFACTS_DIR,
     LAST_TASKS_XML_PATH, LAST_REPORT_XML_PATH, LAST_REPORT_JSON_PATH,
     LAST_PAYLOAD_PATH, LAST_DELIVERY_META_PATH,
     validate_config,
@@ -55,6 +58,19 @@ def parse_args() -> argparse.Namespace:
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def persist_report_artifacts(report_id: str, report_xml: str | None, payload: dict[str, Any], metadata: dict[str, Any]) -> None:
+    """Persist an immutable XML/JSON/metadata bundle for one report."""
+    safe_id = re.sub(r"[^A-Za-z0-9._-]", "_", str(report_id or "unknown"))[:180] or "unknown"
+    report_dir = Path(REPORT_ARTIFACTS_DIR) / safe_id
+    report_dir.mkdir(parents=True, exist_ok=True)
+    if report_xml is not None:
+        write_text_file(str(report_dir / "report.xml"), report_xml)
+        metadata["xml_sha256"] = hashlib.sha256(report_xml.encode("utf-8")).hexdigest()
+        metadata["xml_bytes"] = len(report_xml.encode("utf-8"))
+    write_json_file(str(report_dir / "payload.json"), payload)
+    write_json_file(str(report_dir / "metadata.json"), metadata)
 
 
 _error_counts: dict[tuple, int] = {}
@@ -320,6 +336,7 @@ def build_dashboard_blocks(
     max_sev = 0.0
     sum_sev = 0.0
     cnt_sev = 0
+    cve_pattern = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.IGNORECASE)
 
     if findings:
         for f in findings:
@@ -331,15 +348,20 @@ def build_dashboard_blocks(
             if p:
                 ports[p] += 1
 
-            for c in (f.get("cves") or []):
-                c = str(c).strip()
-                if c:
-                    cves[c] += 1
+            raw_cves = f.get("cves") or f.get("cve") or []
+            if isinstance(raw_cves, str):
+                raw_cves = [raw_cves]
+            if isinstance(raw_cves, (list, tuple)):
+                for value in raw_cves:
+                    for c in cve_pattern.findall(str(value or "")):
+                        cves[c.upper()] += 1
 
             try:
-                sev = float(f.get("severity", 0.0))
-            except Exception:
-                sev = 0.0
+                sev = float(f.get("cvss"))
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(sev) or not 0.0 <= sev <= 10.0:
+                continue
 
             if sev > max_sev:
                 max_sev = sev
@@ -389,8 +411,8 @@ print(f"[{now()}] GVM_HOST={GVM_HOST}:{GVM_PORT}")
 if GVM_SOCKET:
     print(f"[{now()}] GVM_SOCKET={GVM_SOCKET}")
 print(f"[{now()}] GVM_TRANSPORT={GVM_TRANSPORT}")
-print(f"[{now()}] DETAIL_LEVEL={DETAIL_LEVEL} | TOP_N={TOP_N} | REPORT_MAX_KB={REPORT_MAX_KB}KB | FINDING_TEXT_MAX={FINDING_TEXT_MAX}")
-print(f"[{now()}] SNAPSHOT_ALWAYS_SEND={SNAPSHOT_ALWAYS_SEND} | FORCE_SEND_EVERY_CYCLES={FORCE_SEND_EVERY_CYCLES}")
+print(f"[{now()}] DETAIL_LEVEL={DETAIL_LEVEL} | TOP_N={TOP_N} | FINDINGS_MAX={FINDINGS_MAX} | REPORT_MAX_KB={REPORT_MAX_KB}KB | FINDING_TEXT_MAX={FINDING_TEXT_MAX}")
+print(f"[{now()}] GVM_PAGINATE_REPORT={GVM_PAGINATE_REPORT} | GVM_REPORT_PAGE_SIZE={GVM_REPORT_PAGE_SIZE} | GVM_MAX_PAGES={GVM_MAX_PAGES} | SNAPSHOT_ALWAYS_SEND={SNAPSHOT_ALWAYS_SEND} | FORCE_SEND_EVERY_CYCLES={FORCE_SEND_EVERY_CYCLES}")
 print(f"[{now()}] ARTIFACTS_DIR={ARTIFACTS_DIR}")
 print(f"[{now()}] OPENVAS_STATUS_NORMALIZATION=enabled (Done->completed, Running/Pending not sent)")
 
@@ -527,6 +549,8 @@ while True:
                         report_xml: str | None = None
                         report_stats: dict[str, Any] | None = None
                         findings: list[dict[str, Any]] | None = None
+                        extraction_diagnostics: list[dict[str, Any]] = []
+                        pagination_meta: dict[str, Any] = {}
 
                         need_report = (
                             (severities is None)
@@ -550,6 +574,7 @@ while True:
                                     debug=DEBUG_FLAG,
                                 ) as client:
                                     report_xml = client.get_report(report_id)
+                                    pagination_meta = dict(getattr(client, "pagination_stats", {}) or {})
                                     if DEBUG_FLAG:
                                         print(f"[{now()}] [DEBUG] RAW REPORT XML ({report_id}) ({len(report_xml)} bytes):")
                                         print(report_xml[:3000])
@@ -566,11 +591,13 @@ while True:
                                 report_stats = extract_report_stats(report_xml, max_kb=REPORT_MAX_KB)
 
                             if _should_include_findings(DETAIL_LEVEL):
+                                top_n_effective = int(FINDINGS_MAX) if int(FINDINGS_MAX) >= 0 else int(TOP_N)
                                 findings = extract_findings(
                                     report_xml,
-                                    top_n=int(TOP_N),
+                                    top_n=top_n_effective,
                                     text_max=int(FINDING_TEXT_MAX),
                                     max_kb=REPORT_MAX_KB,
+                                    diagnostics=extraction_diagnostics,
                                 )
 
                         findings_hash = hashlib.sha256(
@@ -631,7 +658,22 @@ while True:
                                     "snapshot_changed": snapshot_changed,
                                     "send_reason": send_reason,
                                     "task_id": task_id,
+                                    "pagination": {
+                                        "enabled": bool(pagination_meta.get("enabled", False)),
+                                        "page_size": int(pagination_meta.get("page_size", 0) or 0),
+                                        "pages": int(pagination_meta.get("pages", 0) or 0),
+                                        "results_fetched": int(pagination_meta.get("results_fetched", 0) or 0),
+                                        "findings_max": int(FINDINGS_MAX),
+                                        "findings_in_payload": len(findings or []),
+                                        "results_in_xml": int(report_stats.get("results_in_xml", 0) or 0) if report_stats else 0,
+                                    },
                                     **metrics,
+                                    "extraction": {
+                                        "results_in_xml": int(report_stats.get("results_in_xml", 0) or 0) if report_stats else 0,
+                                        "findings_extracted": len(findings or []),
+                                        "findings_discarded": len(extraction_diagnostics),
+                                        "diagnostics": extraction_diagnostics[:100],
+                                    },
                                 },
                                 "entities": entities,
                             },
@@ -640,6 +682,25 @@ while True:
 
                         write_json_file(LAST_REPORT_JSON_PATH, payload)
                         write_json_file(LAST_PAYLOAD_PATH, payload)
+                        persist_report_artifacts(
+                            report_id,
+                            report_xml,
+                            payload,
+                            {
+                                "schema_version": "1.0",
+                                "report_id": report_id,
+                                "task_id": task_id,
+                                "captured_at": scanned_at,
+                                "results_in_xml": int(report_stats.get("results_in_xml", 0) or 0) if report_stats else 0,
+                                "results_fetched": int(pagination_meta.get("results_fetched", 0) or 0),
+                                "findings_extracted": len(findings or []),
+                                "findings_discarded": len(extraction_diagnostics),
+                                "findings_max": int(FINDINGS_MAX),
+                                "top_n": int(TOP_N),
+                                "pagination": pagination_meta,
+                                "diagnostics": extraction_diagnostics[:100],
+                            },
+                        )
 
                         if DEBUG_FLAG:
                             payload_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
@@ -668,6 +729,7 @@ while True:
                                 "delivery_success": ok,
                                 "ingest_url": TXDXAI_INGEST_URL,
                                 "output_mode": OUTPUT_MODE,
+                                "collector": COLLECTOR,
                             },
                         )
 
@@ -679,7 +741,11 @@ while True:
                             sent_in_cycle += 1
                             next_state["last_idempotency_key"] = idempotency_key
 
+                        else:
+                            had_cycle_error = True
+
                     except Exception as e:
+                        had_cycle_error = True
                         handle_exception(f"cycle.task[{idx}].process", e, {"hint": "Fallo procesando task/report"})
                         continue
 

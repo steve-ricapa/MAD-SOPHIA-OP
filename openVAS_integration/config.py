@@ -42,6 +42,7 @@ ARTIFACTS_DIR = _resolve_path(BASE_DIR.parent, _env("OPENVAS_ARTIFACTS_DIR", "ru
 LAST_TASKS_XML_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_TASKS_XML_PATH", "last_tasks.xml") or "last_tasks.xml")
 LAST_REPORT_XML_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_REPORT_XML_PATH", "last_report.xml") or "last_report.xml")
 LAST_REPORT_JSON_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_REPORT_JSON_PATH", "last_report_built.json") or "last_report_built.json")
+REPORT_ARTIFACTS_DIR = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_REPORT_ARTIFACTS_DIR", "reports") or "reports")
 LAST_PAYLOAD_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_PAYLOAD_PATH", "last_payload_sent.json") or "last_payload_sent.json")
 LAST_DELIVERY_META_PATH = _resolve_path(Path(ARTIFACTS_DIR), _env("OPENVAS_LAST_DELIVERY_META_PATH", "last_delivery_meta.json") or "last_delivery_meta.json")
 
@@ -74,6 +75,16 @@ GVM_TLS_KEYFILE  = _env("GVM_TLS_KEYFILE", "") or ""
 GVM_USE_TLS = _env_bool("GVM_USE_TLS", True)
 GVM_TIMEOUT = _env_int("GVM_TIMEOUT", 30)
 GVM_ALLOW_PLAIN_TCP = _env_bool("GVM_ALLOW_PLAIN_TCP", False)
+
+# Paginación activa del reporte GMP (dev/lab: traer TODOS los findings).
+# false = una sola petición con filtro rows (comportamiento prod legacy).
+GVM_PAGINATE_REPORT = _env_bool("GVM_PAGINATE_REPORT", False)
+GVM_REPORT_PAGE_SIZE = _env_int("GVM_REPORT_PAGE_SIZE", _env_int("GVM_REPORT_ROWS", 250))
+GVM_MAX_PAGES = _env_int("GVM_MAX_PAGES", 200)
+
+# Límite local de findings en el payload.
+# -1 = cae a TOP_N (prod actual); 0 = todos (dev/lab con paginación); >0 = cap explícito.
+FINDINGS_MAX = _env_int("GVM_FINDINGS_MAX", _env_int("FINDINGS_MAX", -1))
 
 if not GVM_TRANSPORT:
     GVM_TRANSPORT = "unix" if GVM_SOCKET else "tls"
@@ -123,6 +134,12 @@ def validate_config() -> None:
 
     if GVM_TRANSPORT not in {"unix", "tls", "plain"}:
         raise ValueError("GVM_TRANSPORT inválido: usa 'unix', 'tls' o 'plain'")
+
+    if not (1 <= GVM_REPORT_PAGE_SIZE <= 2000):
+        raise ValueError("GVM_REPORT_PAGE_SIZE fuera de rango 1..2000")
+
+    if GVM_MAX_PAGES < 1:
+        raise ValueError("GVM_MAX_PAGES debe ser >= 1")
 
     if COLLECTOR == "gmp":
         if GVM_TRANSPORT == "unix" and not GVM_SOCKET:

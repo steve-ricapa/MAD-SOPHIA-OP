@@ -343,7 +343,8 @@ systemctl enable --now mad-6x.timer
 ### Comandos utiles
 
 ```bash
-systemctl start mad-6x.timer        # disparar ya (una recoleccion)
+systemctl start mad-6x.service      # ejecutar un ciclo manual
+systemctl start mad-6x.timer        # activar la programacion horaria
 systemctl list-timers mad-6x        # ver proxima ejecucion
 systemctl status mad-6x.timer       # estado del timer
 systemctl status mad-6x.service     # estado de la ultima recoleccion (failed si algo fallo)
@@ -505,6 +506,236 @@ Fin de paginacion para /assets
 Total de definiciones de vulnerabilidades obtenidas: ...
 Report sent | findings=... sent=True queued=False
 ```
+
+## Recuperacion Controlada En Nexus
+
+### Trazabilidad del despliegue observado
+
+La auditoria del 2026-11-03 encontro Nexus en `1-rama2madop@69cef37`,
+mientras `main` estaba en `165e954`: no eran la misma version. Esta entrega
+lleva a `main` las mejoras de codigo de Nessus y OpenVAS que ya estaban en
+ese despliegue (incluida paginacion), y agrega las correcciones de recuperacion.
+No importa desde esa rama bases de datos de runtime, payloads, bytecode ni
+credenciales. El registro verificable esta en `docs/deployment-trace.json`.
+
+El unico cambio persistente aplicado directamente en Nexus durante la
+recuperacion fue `OPENVAS_STATE_PATH=runtime/openvas/state.json`, con copia
+del estado anterior. Los limites/reintentos temporales de la prueba se
+retiraron; el horario no cambio y el timer quedo detenido. Los cambios de
+este commit no estan desplegados automaticamente: el administrador debe
+actualizar a `main`, registrar el commit y seguir el procedimiento siguiente.
+
+**Kuma:** la ruta de SQLite configurada no existe en Nexus. Antes se devolvian
+solo metricas, con `db={}`, y se enviaban campos enriquecidos vacios. Ahora
+una base configurada pero ausente hace fallar el ciclo; no se crea ni escribe
+una base nueva. El administrador debe proporcionar la base real, un montaje
+de lectura adecuado y permisos; cambiar Git no recupera una base inexistente.
+
+**DNS de OpenVAS:** una subida firmada a S3 fallo al resolver el nombre del
+bucket. Siete subidas del mismo ciclo funcionaron, y las consultas limitadas
+posteriores resolvieron tanto S3 como API Gateway. No hay evidencia suficiente
+para atribuirlo a un servidor DNS o firewall concreto. Esta entrega limita
+la mitigacion a tres intentos de PUT al mismo objeto; no cambia DNS del
+servidor, no repite el POST de URL firmada ni reintenta errores HTTP o TLS.
+Los errores parciales ahora dejan un resultado de ciclo fallido, aunque un
+reporte posterior tenga exito. Los logs ocultan parametros de URLs firmadas.
+
+Los comprobantes locales pueden representar una entrega deduplicada (409),
+no necesariamente un PUT nuevo. Correlacionar los logs de PUT y las
+recepciones/procesamiento de AWS antes de afirmar recuperacion completa.
+
+Este procedimiento actualiza `main`, valida las seis integraciones y deja la
+activacion horaria como ultimo paso del administrador. Usa `mad-6x.timer`;
+no agregues otro cron que ejecute el mismo recolector.
+
+Los chequeos de lectura estan en `scripts/check_integrations.py`. No ejecutan
+los agentes, no suben snapshots, no vacian colas y no imprimen credenciales.
+`scripts/check_deliveries.py` comprueba evidencias de entrega despues de una
+prueba real; un proceso terminado en cero o un payload en cola no bastan.
+
+### 1. Resguardar y actualizar el codigo
+
+En la revision de Nexus del 2026-11-02, el despliegue estaba en `1-rama2madop`,
+con cambios locales, y el timer y servicio estaban detenidos. Por eso un
+`git pull` sin revisar la rama y el arbol de trabajo no es suficiente.
+Ejecuta los siguientes pasos como administrador en una ventana de mantenimiento:
+
+```bash
+sudo -i
+REPO=/home/steve-ricapa/DESARROLLO/MAD-SOPHIA-OP
+REPO_OWNER=steve-ricapa
+SERVICE_USER=desarrollo-xoc
+SERVICE_GROUP=desarrollo-xoc
+cd "$REPO"
+systemctl stop mad-6x.timer mad-6x.service
+
+BACKUP=/home/steve-ricapa/RESPALDOS/MAD-$(date +%Y%m%d-%H%M%S)
+install -d -m 0700 "$BACKUP"
+tar --acls --xattrs --exclude='./.git' --exclude='./myenv' \
+  --exclude='./myenv.backup' -czf "$BACKUP/worktree.tar.gz" -C "$REPO" .
+git -c safe.directory="$REPO" bundle create "$BACKUP/repository.bundle" --all
+systemctl cat mad-6x.service mad-6x.timer > "$BACKUP/systemd-units.txt"
+chmod 0600 "$BACKUP"/*
+
+sudo -u "$REPO_OWNER" git -c core.filemode=false status --short
+sudo -u "$REPO_OWNER" git -c core.filemode=false diff --stat
+sudo -u "$REPO_OWNER" git -c core.filemode=false diff --quiet
+sudo -u "$REPO_OWNER" git -c core.filemode=false diff --cached --quiet
+```
+
+Si alguno de los dos comandos `diff --quiet` devuelve un codigo distinto de cero, hay cambios de
+contenido que deben conservarse y reconciliarse antes de cambiar de rama.
+`core.filemode=false` solo evita confundir cambios de permisos con cambios de
+contenido. No descarta cambios. Tampoco elimines archivos no versionados:
+ahi viven el `.env`, estados, colas y otros datos del despliegue.
+
+Solo con los cambios locales resueltos, continuar:
+
+```bash
+sudo -u "$REPO_OWNER" git fetch origin main
+sudo -u "$REPO_OWNER" git -c core.filemode=false switch main
+sudo -u "$REPO_OWNER" git -c core.filemode=false pull --ff-only origin main
+sudo -u "$REPO_OWNER" git branch --show-current
+sudo -u "$REPO_OWNER" git rev-parse --short HEAD
+```
+
+Si Git indica que archivos locales o no versionados serian sobrescritos,
+detener la actualizacion y reconciliarlos con el respaldo. El `pull` no debe
+reemplazar el `.env` de produccion. Conservar el entorno virtual existente;
+si el Python elegido no puede importar `requests`, `dotenv` o las dependencias
+de las integraciones, instalar `requirements.txt` en ese venv antes de probar.
+
+### 2. Corregir configuracion, permisos y conectividad
+
+Editar el `.env` existente conservando sus claves y direcciones. Separar las
+rutas de estado y comprobantes, como en el `.env.example` versionado:
+
+```dotenv
+NESSUS_ARTIFACTS_DIR=runtime/nessus
+UPTIME_ARTIFACTS_DIR=runtime/uptimekuma
+ZABBIX_ARTIFACTS_DIR=runtime/zabbix
+OPENVAS_STATE_PATH=runtime/openvas/state.json
+```
+
+Crear los directorios necesarios con permisos para el usuario efectivo del
+servicio; no dar escritura al usuario del servicio sobre todo el codigo:
+
+```bash
+install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 2770 \
+  runtime/nessus runtime/uptimekuma runtime/zabbix runtime/openvas/artifacts \
+  runtime/insightvm runtime/locks/mad artifacts state
+
+if [ -f state.json ] && [ ! -e runtime/openvas/state.json ]; then
+  install -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0640 \
+    state.json runtime/openvas/state.json
+fi
+sudo -u "$SERVICE_USER" test -r "$REPO/.env"
+```
+
+El antiguo `artifacts/state.json` era compartido por Nessus, Uptime Kuma y
+Zabbix. No copiarlo a las tres rutas: atribuirlo a la integracion correcta o
+iniciar un estado independiente, conservando el respaldo. Un estado nuevo
+puede producir un primer snapshot completo. Conservar las rutas de colas
+configuradas; revisar sus payloads historicos antes de permitir su reenvio.
+Un ciclo real puede vaciar colas si `QUEUE_ENABLED=true`.
+
+Resolver tambien estos puntos fuera de Git:
+
+- **Uptime Kuma:** confirmar que `UPTIME_KUMA_DB_PATH` corresponde a la base
+  actual utilizada por Kuma. En Nexus la URL de Kuma era remota, mientras
+  la ruta de SQLite era local. Dar al usuario del servicio lectura y paso
+  por los directorios de la base correcta, incluyendo acceso a sus archivos
+  WAL/SHM cuando corresponda. El colector ahora abre SQLite en modo de solo
+  lectura y falla si una base configurada no existe. Quitar la ruta omitiria
+  datos enriquecidos; no usarlo como solucion sin aceptar ese cambio de datos.
+- **InsightVM:** restablecer la ruta/firewall/servicio hacia el host y puerto
+  configurados; despues comprobar la autenticacion. Un `git pull` no soluciona
+  un `No route to host` ni cambia credenciales vencidas.
+- **OpenVAS:** el estado debe escribirse en `runtime/openvas`, no en la raiz
+  del codigo. Revisar ACL/SELinux si la ruta sigue dando permiso denegado.
+- **Wazuh:** un 403 al consultar la raiz del indexador no impide por si mismo
+  leer alertas. El chequeo nuevo valida la busqueda real y la API; si ambas
+  pasan, ese 403 es una advertencia.
+
+### 3. Validar sin enviar datos
+
+Ejecutar con la misma identidad que usa el servicio. Una prueba como `root`
+puede ocultar los errores de permisos que tendra el recolector:
+
+```bash
+sudo -u "$SERVICE_USER" "$REPO/myenv/bin/python3" -B \
+  "$REPO/scripts/check_integrations.py" \
+  --env "$REPO/.env" --service-user "$SERVICE_USER"
+```
+
+El codigo de salida debe ser cero y no debe haber resultados `FAIL`.
+Las advertencias no acreditan una subida a AWS: el chequeo del backend solo
+valida conectividad. Corregir todos los fallos antes del ciclo real.
+
+### 4. Instalar unidades y probar sin activar el horario
+
+Conservar los overrides existentes de Nexus. Las plantillas versionadas
+usan una ruta base `/root`; los overrides de Nexus deben mantener el usuario
+`desarrollo-xoc`, `WorkingDirectory`, `ExecStart`, `MAD_LOCK_DIR` y permisos
+de escritura para la ruta real bajo `/home/steve-ricapa`.
+
+```bash
+install -m 0644 scripts/mad-6x.service /etc/systemd/system/mad-6x.service
+install -m 0644 scripts/mad-6x.timer /etc/systemd/system/mad-6x.timer
+systemctl daemon-reload
+systemctl cat mad-6x.service mad-6x.timer
+test "$(systemctl show mad-6x.service -p User --value)" = "$SERVICE_USER"
+test "$(systemctl show mad-6x.service -p WorkingDirectory --value)" = "$REPO"
+systemd-analyze verify /etc/systemd/system/mad-6x.service /etc/systemd/system/mad-6x.timer
+```
+
+Revisar que `ExecStart` apunte al `run_hourly.sh` de este repositorio. Si las
+comprobaciones de usuario, directorio o unidades fallan, corregir los
+overrides antes de continuar. Las plantillas nuevas no enlazan servicio y
+timer con dependencias reciprocas.
+
+La siguiente prueba si recolecta y envia con el `.env` de produccion; puede
+reenviar colas segun su configuracion. El script exige que el timer este
+detenido, repite el chequeo de lectura como usuario del servicio y ejecuta
+la unidad instalada con todos sus overrides de seguridad. Desactiva sus
+reintentos solo durante la prueba mediante un override en `/run`, que
+retira al finalizar o al recibir una interrupcion normal. No habilita el
+timer:
+
+```bash
+bash scripts/validate_service_once.sh --send-once
+```
+
+Exigir seis comprobantes recientes `PASS` y revisar los logs de este ciclo
+en `runtime/logs/`. Un payload en cola, `DRY_RUN`, salida a consola o un
+comprobante antiguo no acreditan entrega. Si un snapshot se omite por no
+haber cambios, no hay evidencia nueva de envio: esperar el heartbeat
+configurado o acordar un envio forzado temporal conservando y restaurando
+la configuracion. No borrar estados para forzarlo.
+
+El script muestra `scan_id` para contrastar el objeto recibido y su registro
+final en SOPHIA/AWS. La subida aceptada y el procesamiento posterior son
+comprobaciones distintas. Si falla una integracion, dejar el timer detenido,
+corregir el fallo y repetir el ciclo con una nueva hora de inicio.
+
+### 5. Reactivar solo despues de aprobar la prueba
+
+Cuando codigo, permisos, entrega y procesamiento esten confirmados:
+
+```bash
+systemctl enable --now mad-6x.timer
+systemctl list-timers --all mad-6x.timer
+systemctl status mad-6x.timer --no-pager
+journalctl -u mad-6x.service --since '1 hour ago' --no-pager
+```
+
+`Persistent=true` puede ejecutar un ciclo pendiente al habilitar el timer.
+Confirmar que existe una proxima ejecucion y observar al menos el siguiente
+ciclo automatico. Al terminar un `Type=oneshot`, el servicio puede quedar
+`inactive (dead)` normalmente: lo que debe permanecer activo es el timer.
+Si el ciclo automatico falla, detener el timer y revisar los logs antes de
+volver a habilitarlo. No agregar cron ni ejecutar agentes continuos en
+paralelo al temporizador.
 
 ## Troubleshooting
 

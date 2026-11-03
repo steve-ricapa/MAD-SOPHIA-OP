@@ -1,0 +1,49 @@
+{
+  "recorded_date": "2026-11-03",
+  "production": {
+    "host": "NEXUS",
+    "repository": "/home/steve-ricapa/DESARROLLO/MAD-SOPHIA-OP",
+    "branch_observed": "1-rama2madop",
+    "commit_observed": "69cef37f1062d0f8925a62eaf1121148c59c07af",
+    "main_before_reconciliation": "165e954e43df065e53350aa250ac04654e5a4e28",
+    "code_edited_directly_by_recovery": false,
+    "persistent_configuration_changes": [
+      {
+        "date": "2026-11-02",
+        "key": "OPENVAS_STATE_PATH",
+        "before": "./state.json",
+        "after": "runtime/openvas/state.json",
+        "state_migration": "Copied existing state preserving 55 recorded report IDs before the test; original retained."
+      }
+    ],
+    "backup": "/var/backups/mad-controlled-20261102-170701",
+    "test_started_at": "2026-11-02T17:08:10.549416-05:00",
+    "test_stopped_at": "2026-11-02T17:16:40-05:00",
+    "test_memory_peak_bytes": 239075328,
+    "test_restarts": 0,
+    "temporary_systemd_override_removed": true,
+    "timer_schedule_modified": false,
+    "timer_calendar": "*-*-* *:00:00",
+    "timer_active_on_last_read": false,
+    "confirmed_s3_puts_during_test": {
+      "nessus": 1,
+      "uptimekuma": 1,
+      "zabbix": 1,
+      "wazuh": 1,
+      "openvas": 7,
+      "insightvm": 0
+    },
+    "aws_receipt_report": "User supplied AWS confirmation matching these counts; no AWS administration performed by this recovery."
+  },
+  "reconciliation": {
+    "method": "Preserve deployed Nessus and OpenVAS source enhancements from commit 69cef37 on main, then apply reviewed recovery fixes. Do not import runtime databases, bytecode, logs, production .env or payloads from the feature branch.",
+    "production_is_not_automatically_updated": true,
+    "administrator_must_deploy_and_verify_commit": true,
+    "production_credentials_are_not_versioned": true
+  },
+  "remaining_external_requirements": {
+    "uptimekuma": "Configured SQLite path does not exist on Nexus. Supply the correct live database/mount and read permissions; metrics endpoint is on another host. Never silently equate metrics-only data with configured enrichment.",
+    "openvas_dns": "Observed name-resolution failure during one signed S3 PUT. Subsequent limited queries resolve S3 and API Gateway; historical evidence does not identify the responsible DNS server/network/firewall. Bounded same-key PUT retries mitigate intermittent connection failures but cannot fix persistent DNS failure.",
+    "insightvm": "Out of scope for this delivery's production actions; licensing hypothesis not established."
+  }
+}
