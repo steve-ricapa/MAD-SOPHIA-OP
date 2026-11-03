@@ -591,6 +591,35 @@ ahi viven el `.env`, estados, colas y otros datos del despliegue.
 
 Solo con los cambios locales resueltos, continuar:
 
+**Migracion obligatoria de datos operativos:** esta reconciliacion deja de
+versionar los archivos de `docs/operational-migration.json`. El cambio de
+rama/actualizacion puede retirar archivos que antes estaban seguidos por Git,
+incluidos SQLite y sus archivos WAL/SHM. Esto NO autoriza a perderlos.
+
+Antes de cambiar de rama, con timer, servicio y agentes manuales detenidos:
+
+1. Verificar que el respaldo completo anterior contiene todos los archivos
+   operativos presentes y puede leerse. Conservar SQLite, WAL y SHM juntos.
+2. Preparar una copia separada de los archivos presentes del manifiesto,
+   preservando rutas relativas, propietarios, permisos, ACL y xattrs. Las
+   colas y el `.env` reales tambien quedan protegidos por el respaldo completo.
+3. Revisar los cambios locales de codigo y de indice. Los estados modificados
+   normalmente no son cambios de codigo: reconciliarlos desde su copia
+   verificada; no usar un reset global para descartar el arbol de trabajo.
+4. Cambiar/actualizar a `main` solo cuando Git lo permita sin sobrescribir
+   cambios pendientes. Inmediatamente despues, restaurar la copia operativa
+   en las mismas rutas, manteniendo detenida toda ejecucion. No restaurar
+   codigo viejo ni caches `.pyc` sobre el codigo nuevo.
+5. Comparar hashes y permisos de los datos restaurados contra la copia. No
+   ejecutar pruebas ni activar el horario antes de verificar esta restauracion.
+
+El manifiesto enumera los archivos historicos retirados de Git, no todos los
+datos posibles del servidor. La ausencia de un archivo en el manifiesto no
+autoriza a eliminarlo. No se inspeccionaron ni descartaron registros del spool.
+Si no se puede completar y verificar esta migracion, detener el despliegue.
+Los chequeos de un ciclo posteriores revisan integridad de codigo y plantillas,
+permitiendo que estados/comprobantes cambien normalmente durante la operacion.
+
 ```bash
 sudo -u "$REPO_OWNER" git fetch origin main
 sudo -u "$REPO_OWNER" git -c core.filemode=false switch main

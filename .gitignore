@@ -57,3 +57,24 @@ nessus_integration/raw_scans_snapshot.json
 wazuh_integration/artifacts/
 wazuh_integration/debug_output/
 wazuh_integration/state/*.db
+
+# Operational state is preserved on hosts, never deployed from Git.
+runtime/
+.pytest-*/
+.validation-tmp*/
+/insightVM_integration/agent.log
+/insightVM_integration/assets_table.csv
+/insightVM_integration/assets_table.json
+/insightVM_integration/last_payload_sent.json
+/insightVM_integration/security_data.json
+/insightVM_integration/security_data_normalized.json
+/insightVM_integration/state.json
+/openVAS_integration/state.json
+/openVAS_integration/state.json.lock
+/uptimekuma_integration/debug_report.json
+/uptimekuma_integration/debug_report_redacted.json
+/uptimekuma_integration/last_payload_sent.json
+/uptimekuma_integration/raw_monitors_snapshot.json
+/uptimekuma_integration/state.json
+/wazuh_integration/state/agent_state.db
+/zabix_integration/state.json
