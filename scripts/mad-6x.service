@@ -7,8 +7,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=root
-WorkingDirectory=/root/DESARROLLO/MAD-SOPHIA-OP
-ExecStart=/bin/bash /root/DESARROLLO/MAD-SOPHIA-OP/scripts/run_hourly.sh
+WorkingDirectory=/home/steve-ricapa/DESARROLLO/MAD-SOPHIA-OP
+ExecStart=/bin/bash /home/steve-ricapa/DESARROLLO/MAD-SOPHIA-OP/scripts/run_hourly.sh
 # Si falla, reintentar y dejar que systemctl muestre el estado de fallo.
 Restart=on-failure
 RestartSec=60
@@ -18,6 +18,6 @@ TimeoutStartSec=1800
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ReadWritePaths=/root/DESARROLLO/MAD-SOPHIA-OP/runtime
-ReadWritePaths=/root/DESARROLLO/MAD-SOPHIA-OP/artifacts
-ReadWritePaths=/root/DESARROLLO/MAD-SOPHIA-OP/state
+ReadWritePaths=/home/steve-ricapa/DESARROLLO/MAD-SOPHIA-OP/runtime
+ReadWritePaths=/home/steve-ricapa/DESARROLLO/MAD-SOPHIA-OP/artifacts
+ReadWritePaths=/home/steve-ricapa/DESARROLLO/MAD-SOPHIA-OP/state
