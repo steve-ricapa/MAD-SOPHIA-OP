@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from mad_common.delivery import DeliveryPolicy, resolve_delivery_policy
+
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,13 +31,12 @@ class InsightVMSettings:
 
 @dataclass(frozen=True)
 class BackendSettings:
+    delivery_policy: DeliveryPolicy
     url: Optional[str]
     tenant_id: int
     company_id: int
     api_key: Optional[str]
     verify: bool
-    force_send_every_cycles: int
-    snapshot_always_send: bool
     mad_version: str
     integration_version: str
     source: str
@@ -103,19 +110,12 @@ def load_backend_settings() -> BackendSettings:
         raise ValueError("TXDXAI_API_KEY_INSIGHTVM/TXDXAI_API_KEY/API_KEY es requerido para enviar al backend")
 
     return BackendSettings(
+        delivery_policy=resolve_delivery_policy(os.environ, "insightvm"),
         url=url,
         tenant_id=tenant_id,
         company_id=company_id,
         api_key=api_key,
         verify=_truthy(os.getenv("BACKEND_VERIFY_SSL"), True),
-        force_send_every_cycles=int(
-            os.getenv("INSIGHTVM_FORCE_SEND_EVERY_CYCLES")
-            or os.getenv("FORCE_SEND_EVERY_CYCLES", "10")
-        ),
-        snapshot_always_send=_truthy(
-            os.getenv("INSIGHTVM_SNAPSHOT_ALWAYS_SEND"),
-            _truthy(os.getenv("SNAPSHOT_ALWAYS_SEND"), False),
-        ),
         mad_version=(os.getenv("MAD_VERSION") or "2.3.0").strip(),
         integration_version=(
             os.getenv("INSIGHTVM_INTEGRATION_VERSION")

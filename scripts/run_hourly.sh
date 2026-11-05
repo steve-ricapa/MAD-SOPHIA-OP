@@ -5,9 +5,8 @@
 # Orquestador horario de las 6 integraciones MAD-SOPHIA-OP.
 #
 # - Detecta automaticamente un Python valido (venv del repo o python3 global).
-# - Corre cada integracion con --once (un solo ciclo) usando el smart-cache
-#   existente (state.json + decide_snapshot_send): si el snapshot no cambio,
-#   el agente no envia nada (excepto heartbeat forzado por FORCE_SEND_EVERY_CYCLES).
+# - Corre cada integración una vez. La decisión de envío usa MAD_DELIVERY_MODE
+#   y perfiles por integración, persistidos en el journal delivery-v2.
 # - Protege contra solapamientos con flock por integracion.
 # - Escalona ligeramente los lanzamientos para no golpear todos los sistemas
 #   y el backend al mismo tiempo.

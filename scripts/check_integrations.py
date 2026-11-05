@@ -19,6 +19,11 @@ import requests
 from dotenv import dotenv_values
 from dotenv.parser import parse_stream
 
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from mad_common.delivery import resolve_delivery_policy
+
 
 INTEGRATIONS = ("nessus", "uptimekuma", "zabbix", "openvas", "wazuh", "insightvm")
 TIMEOUT = (5, 20)
@@ -376,6 +381,15 @@ def run_checks(cfg, repo: Path, session, *, service_user="desarrollo-xoc", actua
     if (actual_user if actual_user is not None else current_user()) != service_user:
         return [Result("identity", "service_user", "FAIL", "must_run_as_configured_service_user")]
     results = [Result("identity", "service_user", "PASS", "effective_service_identity_confirmed")]
+    for name in INTEGRATIONS:
+        try:
+            policy = resolve_delivery_policy(cfg, name)
+            results.append(Result(name, "delivery_policy", "PASS",
+                                  f"mode={policy.mode};backup_cycles={policy.backup_cycles};interval_seconds={policy.interval_seconds};source={policy.source}"))
+        except ValueError:
+            results.append(Result(name, "delivery_policy", "FAIL", "invalid_or_legacy_delivery_policy; migrate_configuration"))
+    if any(item.status == "FAIL" for item in results):
+        return results
     results.extend(_run("configuration", "state_access", lambda: check_state_paths(repo, cfg)))
     results.extend(check_nessus(cfg, session))
     results.extend(check_zabbix(cfg, session))

@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from mad_common.delivery import DeliveryPolicy, resolve_delivery_policy
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +15,7 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class Config:
+    delivery_policy: DeliveryPolicy
     base_dir: Path
     artifacts_dir: Path
     uptime_kuma_url: str
@@ -24,8 +32,6 @@ class Config:
     verify_ssl: bool
     http_retries: int
     backoff_seconds: int
-    force_send_every_cycles: int
-    snapshot_always_send: bool
     include_all_monitors: bool
     include_extended_fields: bool
     queue_enabled: bool
@@ -92,8 +98,6 @@ def load_config() -> Config:
     verify_ssl = _env_bool("UPTIME_VERIFY_SSL", _env_bool("VERIFY_SSL", True))
     http_retries = int(os.getenv("UPTIME_HTTP_RETRIES") or os.getenv("HTTP_RETRIES", "3"))
     backoff_seconds = int(os.getenv("UPTIME_BACKOFF_SECONDS") or os.getenv("BACKOFF_SECONDS", "5"))
-    force_send_every_cycles = int(os.getenv("UPTIME_FORCE_SEND_EVERY_CYCLES") or os.getenv("FORCE_SEND_EVERY_CYCLES", "6"))
-    snapshot_always_send = _env_bool("UPTIME_SNAPSHOT_ALWAYS_SEND", _env_bool("SNAPSHOT_ALWAYS_SEND", False))
     include_all_monitors = _env_bool("UPTIME_INCLUDE_ALL_MONITORS", _env_bool("INCLUDE_ALL_MONITORS", False))
     include_extended_fields = _env_bool("UPTIME_INCLUDE_EXTENDED_FIELDS", _env_bool("INCLUDE_EXTENDED_FIELDS", False))
     queue_enabled = _env_bool("UPTIME_QUEUE_ENABLED", _env_bool("QUEUE_ENABLED", True))
@@ -142,14 +146,13 @@ def load_config() -> Config:
         raise SystemExit("Falta TXDXAI_API_KEY_UPTIMEKUMA/TXDXAI_API_KEY/API_KEY para OUTPUT_MODE=webhook/all.")
     if poll_interval <= 0:
         raise SystemExit("POLL_INTERVAL_SECONDS debe ser mayor que 0.")
-    if force_send_every_cycles < 1:
-        raise SystemExit("FORCE_SEND_EVERY_CYCLES debe ser mayor o igual a 1.")
     if queue_flush_max < 1:
         raise SystemExit("QUEUE_FLUSH_MAX debe ser mayor o igual a 1.")
     if not uptime_kuma_url:
         raise SystemExit("UPTIME_KUMA_URL es requerido.")
 
     return Config(
+        delivery_policy=resolve_delivery_policy(os.environ, 'uptimekuma'),
         base_dir=base_dir,
         artifacts_dir=artifacts_dir,
         uptime_kuma_url=uptime_kuma_url,
@@ -166,8 +169,6 @@ def load_config() -> Config:
         verify_ssl=verify_ssl,
         http_retries=http_retries,
         backoff_seconds=backoff_seconds,
-        force_send_every_cycles=force_send_every_cycles,
-        snapshot_always_send=snapshot_always_send,
         include_all_monitors=include_all_monitors,
         include_extended_fields=include_extended_fields,
         queue_enabled=queue_enabled,

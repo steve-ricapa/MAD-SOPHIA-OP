@@ -1,6 +1,12 @@
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from mad_common.delivery import resolve_delivery_policy
 
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_env_path, override=True)
@@ -51,8 +57,7 @@ OUTPUT_MODE = (_env("OPENVAS_OUTPUT_MODE", _env("OUTPUT_MODE", "http")) or "http
 COLLECTOR   = (_env("OPENVAS_COLLECTOR", _env("COLLECTOR", "simulated")) or "simulated").strip().lower()
 
 POLL_SECONDS = _env_int("OPENVAS_POLL_SECONDS", _env_int("POLL_SECONDS", 10))
-FORCE_SEND_EVERY_CYCLES = _env_int("OPENVAS_FORCE_SEND_EVERY_CYCLES", _env_int("FORCE_SEND_EVERY_CYCLES", 6))
-SNAPSHOT_ALWAYS_SEND = _env_bool("OPENVAS_SNAPSHOT_ALWAYS_SEND", _env_bool("SNAPSHOT_ALWAYS_SEND", False))
+DELIVERY_POLICY = resolve_delivery_policy(os.environ, "openvas")
 STATE_PATH   = _env("OPENVAS_STATE_PATH", _env("STATE_PATH", "./state.json")) or "./state.json"
 META_MAX_KB  = _env_int("META_MAX_KB", 256)
 
@@ -125,9 +130,6 @@ def validate_config() -> None:
 
     if POLL_SECONDS <= 0:
         raise ValueError("POLL_SECONDS debe ser > 0")
-
-    if FORCE_SEND_EVERY_CYCLES < 1:
-        raise ValueError("OPENVAS_FORCE_SEND_EVERY_CYCLES debe ser >= 1")
 
     if not (1 <= GVM_PORT <= 65535):
         raise ValueError("GVM_PORT fuera de rango 1..65535")

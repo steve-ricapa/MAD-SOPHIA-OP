@@ -46,7 +46,10 @@ def verify_deliveries(repo: Path, cfg: Mapping[str, str], since: datetime,
             elif saved > now + timedelta(minutes=5):
                 row["detail"] = "delivery_timestamp_in_future"
             else:
-                if name in {"nessus", "uptimekuma", "zabbix"}:
+                if meta.get("schema_version") == 2:
+                    success = (meta.get("integration") == name and meta.get("sent") is True
+                               and meta.get("queued") is False and meta.get("mode") in {"all", "webhook"})
+                elif name in {"nessus", "uptimekuma", "zabbix"}:
                     prefix = {"nessus": "NESSUS", "uptimekuma": "UPTIME", "zabbix": "ZABBIX"}[name]
                     mode = cfg.get(prefix + "_OUTPUT_MODE") or cfg.get("OUTPUT_MODE", "all")
                     success = (meta.get("sent") is True and meta.get("queued") is not True

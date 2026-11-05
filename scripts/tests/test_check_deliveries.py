@@ -51,6 +51,22 @@ def test_all_six_require_fresh_successful_evidence(successful_records):
     assert all(row["status"] == "PASS" for row in results)
 
 
+def test_v2_receipt_requires_matching_integration_and_explicit_ack(successful_records):
+    _, _, paths, _ = successful_records
+    _replace(paths, "nessus", schema_version=2, integration="nessus", mode="webhook",
+             sent=True, queued=False, idempotency_key="sha256:abc")
+    assert _result(successful_records, "nessus")["status"] == "PASS"
+
+    _replace(paths, "nessus", integration="zabbix")
+    assert _result(successful_records, "nessus")["status"] == "FAIL"
+
+    _replace(paths, "nessus", integration="nessus", sent=1)
+    assert _result(successful_records, "nessus")["status"] == "FAIL"
+
+    _replace(paths, "nessus", sent=True, queued=True)
+    assert _result(successful_records, "nessus")["status"] == "FAIL"
+
+
 def test_success_receipts_do_not_claim_a_new_upload(successful_records):
     repo, cfg, _, now = successful_records
     results = checks.verify_deliveries(repo, cfg, now - timedelta(minutes=1), now)

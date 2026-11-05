@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Dict
 try:
@@ -31,29 +33,31 @@ class StateManager:
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    if not isinstance(data, dict):
+                        raise ValueError("InsightVM state must be a JSON object")
                     if isinstance(data, dict):
                         base = _initial_state()
                         base.update(data)
                         self.state = base
             except Exception as e:
                 log.error("Error al cargar state.json: %s", e)
+                raise
 
     def save(self) -> None:
-        f = None
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=".insight-state-", dir=self.state_file.parent)
         try:
-            with open(self.state_file, "w", encoding="utf-8") as f:
-                if fcntl:
-                    try:
-                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    except Exception:
-                        log.warning("No se pudo obtener el bloqueo del archivo (ya está en uso).")
-                        return
-                json.dump(self.state, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            log.error("Error al guardar state.json: %s", e)
-        finally:
-            if f and fcntl:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(self.state, stream, indent=2, ensure_ascii=False, allow_nan=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.state_file)
+            if os.name != "nt":
+                directory_fd = os.open(self.state_file.parent, os.O_RDONLY)
                 try:
-                    fcntl.flock(f, fcntl.LOCK_UN)
-                except Exception:
-                    pass
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)

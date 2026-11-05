@@ -15,7 +15,8 @@ from src.api import WazuhApiClient
 from src.aggregator import Aggregator
 from src.state import StateStore
 from src.sender import Sender
-from snapshot import build_idempotency_key, build_snapshot_signature, decide_snapshot_send
+from snapshot import build_snapshot_signature
+from mad_common.delivery import DeliveryJournal, resolve_delivery_policy
 
 
 WAZUH_BANNER = r"""
@@ -254,247 +255,118 @@ async def run_startup_integration_tests(indexer, api, sender, api_key, missing_r
     return results
 
 
-async def retry_failed_payloads(sender, app_cfg):
-    """Retries payloads that failed to send due to transient issues."""
-    failed_dir = Path(app_cfg["failed_dir"])
-    payload_dir = Path(app_cfg["payload_dir"])
-    invalid_dir = failed_dir / "invalid"
-    invalid_dir.mkdir(parents=True, exist_ok=True)
+def _update_delivery_checkpoint(state, key, value):
+    """StateStore logs write errors; verify persistence before acknowledging."""
+    state.update_checkpoint(key, value)
+    if state.get_checkpoint(key, default=None) != value:
+        raise RuntimeError(f"Unable to persist Wazuh delivery checkpoint {key}")
 
-    while True:
-        try:
-            failed_files = sorted(failed_dir.glob("failed_*.json"), key=lambda p: p.stat().st_mtime)
 
-            if failed_files:
-                logger.info("Retry queue status | pending_payloads={}", len(failed_files))
-
-            for failed_file in failed_files:
-                try:
-                    with open(failed_file, "r", encoding="utf-8") as f:
-                        payload = json.load(f)
-                except Exception as e:
-                    invalid_target = invalid_dir / failed_file.name
-                    failed_file.replace(invalid_target)
-                    logger.error("Invalid failed payload moved to {}: {}", invalid_target.name, e)
-                    continue
-
-                if parse_bool(app_cfg["dry_run"], default=False):
-                    logger.info("DRY_RUN enabled: skipping retry for {}", failed_file.name)
-                    continue
-
-                success = await sender.send_report(payload)
-                if success:
-                    retried_name = failed_file.name.replace("failed_", "retried_")
-                    retried_target = payload_dir / retried_name
-                    failed_file.replace(retried_target)
-                    logger.success("Retry succeeded | file={} | moved_to={}", failed_file.name, retried_target.name)
-                else:
-                    failure_kind = sender.last_failure_kind or "unknown"
-                    status_code = sender.last_status_code
-
-                    if failure_kind in NON_RETRYABLE_FAILURE_KINDS:
-                        invalid_target = invalid_dir / failed_file.name
-                        failed_file.replace(invalid_target)
-                        logger.error(
-                            "Retry marked non-retryable | file={} | kind={} | status={} | moved_to={}",
-                            failed_file.name,
-                            failure_kind,
-                            status_code,
-                            invalid_target.name,
-                        )
-                        continue
-
-                    logger.warning(
-                        "Retry failed, keeping queued payload | file={} | kind={} | status={}",
-                        failed_file.name,
-                        failure_kind,
-                        status_code,
-                    )
-                    break
-        except Exception as e:
-            logger.exception(f"Error in retry_failed_payloads loop: {e}")
-
-        await asyncio.sleep(int(app_cfg["retry_failed_interval_seconds"]))
+def _ack_delivery(state, event):
+    _update_delivery_checkpoint(state, "snapshot_signature", event["signature"])
+    _update_delivery_checkpoint(state, "has_sent_once", "true")
+    _update_delivery_checkpoint(state, "last_idempotency_key", event["key"])
+    _update_delivery_checkpoint(state, "last_sent_at", datetime.now(timezone.utc).isoformat())
+    _update_delivery_checkpoint(state, "last_send_result", "sent")
 
 
 async def poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id, api_key, app_cfg, single_run=False):
-    """Snapshot-based loop: fetch full window, compute signature, decide send."""
+    """Drain durable delivery events independently, then observe source content."""
     while True:
+        cycle_ok = True
         try:
-            window_end = datetime.now(timezone.utc)
-            window_start = window_end - timedelta(hours=app_cfg["initial_lookback_hours"])
-            w_start_str = window_start.isoformat()
-            w_end_str = window_end.isoformat()
-
-            logger.info("Snapshot cycle | window=[{}, {}]", w_start_str, w_end_str)
-
-            batch_size = int(app_cfg["alert_batch_size"])
-            raw_alerts = await indexer.get_new_alerts(w_start_str, limit=batch_size)
-            raw_count = len(raw_alerts)
-
-            min_level = int(app_cfg["min_rule_level"])
-            raw_alerts = [a for a in raw_alerts if int(a.get('rule', {}).get('level', 0)) >= min_level]
-            filtered_count = len(raw_alerts)
-
-            findings = [aggregator.normalize_alert(a) for a in raw_alerts]
-
-            agent_summary = state.get_checkpoint("agent_summary", default=None)
-            if agent_summary:
-                try:
-                    agent_summary = json.loads(agent_summary)
-                except (json.JSONDecodeError, TypeError):
-                    agent_summary = None
-
-            prev_signature = str(state.get_checkpoint("snapshot_signature", ""))
-            unchanged_cycles = int(state.get_checkpoint("unchanged_cycles", "0") or "0")
-            has_sent_once = parse_bool(state.get_checkpoint("has_sent_once", "false"), default=False)
-
-            current_signature = build_snapshot_signature(findings, agent_summary, w_start_str, w_end_str)
-
-            snapshot_decision = decide_snapshot_send(
-                current_signature=current_signature,
-                previous_signature=prev_signature,
-                unchanged_cycles=unchanged_cycles,
-                has_sent_once=has_sent_once,
-                force_send_every_cycles=int(app_cfg["force_send_every_cycles"]),
-                snapshot_always_send=bool(app_cfg["snapshot_always_send"]),
-            )
-            send_reason = str(snapshot_decision.get("reason", "snapshot_changed"))
-            should_send = bool(snapshot_decision.get("should_send", False))
-            snapshot_changed = bool(snapshot_decision.get("changed", False))
-            unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
-            snapshot_mode = "always" if app_cfg["snapshot_always_send"] else "delta_with_periodic_forced"
-
-            idempotency_key = build_idempotency_key(company_id, "wazuh", "vuln_scan_report", current_signature)
-
-            state.update_checkpoint("snapshot_signature", current_signature)
-            state.update_checkpoint("unchanged_cycles", str(unchanged_cycles))
-            state.update_checkpoint("last_idempotency_key", idempotency_key)
-
-            if not should_send:
-                state.update_checkpoint("last_send_result", "skipped_no_change")
-                logger.info(
-                    "Snapshot sin cambios | cycle_unchanged={} reason={} sig={}",
-                    unchanged_cycles,
-                    send_reason,
-                    current_signature[:16],
+            legacy = list(Path(app_cfg["failed_dir"]).glob("failed_*.json"))
+            if legacy:
+                raise RuntimeError(
+                    "Legacy Wazuh failed_payloads contains pending reports. "
+                    "Migrate or reconcile these reports before using delivery-v2; "
+                    "the collector will not silently replay or discard them."
                 )
-            else:
-                scan_id = str(uuid.uuid4())
-                config = {"scan_id": scan_id, "tenant_id": tenant_id, "company_id": company_id, "api_key": api_key}
-
-                report = aggregator.create_report(
-                    findings, agent_summary, config,
-                    idempotency_key=idempotency_key,
-                    snapshot_signature=current_signature,
-                    snapshot_mode=snapshot_mode,
-                    send_reason=send_reason,
-                    snapshot_changed=snapshot_changed,
-                    mad_version=app_cfg["mad_version"],
-                    integration_version=app_cfg["integration_version"],
-                    source=app_cfg["source"],
-                )
-
-                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-                archive_json(
-                    Path(app_cfg["raw_dir"]) / f"raw_{timestamp}_{scan_id}.json",
-                    {
-                        "scan_id": scan_id,
-                        "window": {"start": w_start_str, "end": w_end_str},
-                        "raw_count": raw_count,
-                        "filtered_count": filtered_count,
-                        "finding_count": len(findings),
-                        "snapshot_signature": current_signature,
-                        "send_reason": send_reason,
-                        "raw_alerts": raw_alerts,
-                    },
-                )
-                archive_json(
-                    Path(app_cfg["last_raw_path"]),
-                    {
-                        "scan_id": scan_id,
-                        "window": {"start": w_start_str, "end": w_end_str},
-                        "raw_count": raw_count,
-                        "filtered_count": filtered_count,
-                        "finding_count": len(findings),
-                        "snapshot_signature": current_signature,
-                        "send_reason": send_reason,
-                        "raw_alerts": raw_alerts,
-                    },
-                )
-                archive_json(
-                    Path(app_cfg["payload_dir"]) / f"payload_{timestamp}_{scan_id}.json",
-                    report,
-                )
-                archive_json(Path(app_cfg["last_payload_path"]), report)
-
-                dry_run = parse_bool(app_cfg["dry_run"], default=False)
-                success = False
-
-                if dry_run:
-                    logger.info("DRY_RUN enabled: payload not sent")
-                    logger.info(
-                        "Snapshot | scan_id={} | findings={} | reason={} | results={}",
-                        scan_id,
-                        len(findings),
-                        send_reason,
-                        report["scan_summary"]["results"],
-                    )
-                    success = True
-                else:
-                    success = await sender.send_report(report)
-
-                archive_json(
-                    Path(app_cfg["last_delivery_meta_path"]),
-                    {
+            policy = app_cfg.get("delivery_policy") or resolve_delivery_policy(os.environ, "wazuh")
+            directory = app_cfg.get("delivery_dir") or str(Path(app_cfg["failed_dir"]).parent / "delivery-v2")
+            dry_run = parse_bool(app_cfg["dry_run"], default=False)
+            last_result = state.get_checkpoint("last_send_result", "") or ""
+            baseline = state.get_checkpoint("snapshot_signature", "") if (
+                parse_bool(state.get_checkpoint("has_sent_once", "false"), default=False)
+                and not str(last_result).startswith(("failed", "queued"))
+            ) else None
+            with DeliveryJournal(directory, "wazuh", policy, baseline_signature=baseline,
+                                 baseline_sent_at=state.get_checkpoint("last_sent_at", None)) as journal:
+                async def send(payload, key):
+                    nonlocal cycle_ok
+                    try:
+                        ok = await sender.send_report(payload)
+                    except Exception as error:
+                        logger.exception("Wazuh queued delivery failed: {}", error)
+                        ok = False
+                    if ok is not True:
+                        cycle_ok = False
+                    archive_json(Path(app_cfg["last_delivery_meta_path"]), {
                         "saved_at_utc": datetime.now(timezone.utc).isoformat(),
-                        "scan_id": scan_id,
-                        "delivery_success": success,
-                        "status_code": sender.last_status_code,
-                        "failure_kind": sender.last_failure_kind,
-                        "error_body": sender.last_error_body,
-                    },
-                )
+                        "scan_id": payload.get("scan_id"), "idempotency_key": key,
+                        "delivery_success": ok is True,
+                        "status_code": getattr(sender, "last_status_code", None),
+                        "failure_kind": getattr(sender, "last_failure_kind", None),
+                        "error_body": getattr(sender, "last_error_body", None),
+                    })
+                    return ok is True
 
-                if success:
-                    state.update_checkpoint("has_sent_once", "true")
-                    state.update_checkpoint("last_send_result", "sent")
-                    state.update_checkpoint("last_sent_at", datetime.now(timezone.utc).isoformat())
-                    logger.success(
-                        "Snapshot sent | scan_id={} | findings={} | reason={} | changed={} | sig={}",
-                        scan_id,
-                        len(findings),
-                        send_reason,
-                        snapshot_changed,
-                        current_signature[:16],
+                if not dry_run:
+                    await journal.drain_async(send, on_ack=lambda event: _ack_delivery(state, event))
+
+                window_end = datetime.now(timezone.utc)
+                window_start = window_end - timedelta(hours=app_cfg["initial_lookback_hours"])
+                w_start_str, w_end_str = window_start.isoformat(), window_end.isoformat()
+                raw_alerts = await indexer.get_new_alerts(w_start_str, limit=int(app_cfg["alert_batch_size"]))
+                if getattr(indexer, "last_error_kind", None) or getattr(indexer, "last_error", None):
+                    raise RuntimeError(f"Wazuh source collection failed: {getattr(indexer, 'last_error', None)}")
+                raw_count = len(raw_alerts)
+                raw_alerts = [a for a in raw_alerts if int(a.get("rule", {}).get("level", 0)) >= int(app_cfg["min_rule_level"])]
+                findings = [aggregator.normalize_alert(a) for a in raw_alerts]
+                agent_summary = state.get_checkpoint("agent_summary", default=None)
+                if agent_summary:
+                    agent_summary = json.loads(agent_summary)
+                signature = build_snapshot_signature(findings, agent_summary, w_start_str, w_end_str)
+                decision = journal.decision(signature)
+                logger.info("Delivery decision | reason={} unchanged={}/{}", decision["reason"], decision["unchanged_cycles"], policy.backup_cycles)
+                if decision["should_send"]:
+                    scan_id = str(uuid.uuid4())
+                    report = aggregator.create_report(
+                        findings, agent_summary,
+                        {"scan_id": scan_id, "tenant_id": tenant_id, "company_id": company_id, "api_key": api_key},
+                        snapshot_signature=signature, snapshot_mode=decision["snapshot_mode"],
+                        send_reason=decision["reason"], snapshot_changed=decision["changed"],
+                        mad_version=app_cfg["mad_version"], integration_version=app_cfg["integration_version"],
+                        source=app_cfg["source"],
                     )
+                    if not dry_run:
+                        event = journal.enqueue(signature, report)
+                        if event is not None:
+                            report = event["payload"]
+                    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                    raw_record = {"scan_id": scan_id, "window": {"start": w_start_str, "end": w_end_str},
+                                  "raw_count": raw_count, "filtered_count": len(raw_alerts),
+                                  "finding_count": len(findings), "snapshot_signature": signature,
+                                  "send_reason": decision["reason"], "raw_alerts": raw_alerts}
+                    archive_json(Path(app_cfg["raw_dir"]) / f"raw_{timestamp}_{scan_id}.json", raw_record)
+                    archive_json(Path(app_cfg["last_raw_path"]), raw_record)
+                    archive_json(Path(app_cfg["payload_dir"]) / f"payload_{timestamp}_{scan_id}.json", report)
+                    archive_json(Path(app_cfg["last_payload_path"]), report)
+                    if dry_run:
+                        logger.info("DRY_RUN enabled: preview archived; no delivery state advanced")
+                    elif cycle_ok:
+                        await journal.drain_async(send, on_ack=lambda event: _ack_delivery(state, event))
                 else:
-                    failure_kind = sender.last_failure_kind or "unknown"
-                    status_code = sender.last_status_code
-                    state.update_checkpoint("last_send_result", f"failed_{failure_kind}")
-
-                    if failure_kind in NON_RETRYABLE_FAILURE_KINDS:
-                        logger.error(
-                            "Non-retryable backend failure | kind={} | status={} | cooldown={}s",
-                            failure_kind,
-                            status_code,
-                            app_cfg["non_retryable_backoff_seconds"],
-                        )
-                        await asyncio.sleep(int(app_cfg["non_retryable_backoff_seconds"]))
-                    else:
-                        failed_name = f"failed_{timestamp}_{scan_id}.json"
-                        archive_json(Path(app_cfg["failed_dir"]) / failed_name, report)
-                        logger.error(
-                            "Snapshot send failed (retryable). Saved: {}",
-                            failed_name,
-                        )
-
+                    if not dry_run:
+                        journal.commit_observation(signature)
+                    logger.info("Snapshot skipped | reason={}", decision["reason"])
+                if not dry_run and journal.state.get("pending"):
+                    cycle_ok = False
         except Exception as e:
-            logger.exception(f"Error in poll_alerts cycle: {e}")
-
+            cycle_ok = False
+            logger.exception("Error in poll_alerts cycle: {}", e)
         if single_run:
-            logger.info("Single-run mode: poll_alerts completed one cycle.")
-            break
+            return cycle_ok
         await asyncio.sleep(int(app_cfg["poll_interval_alerts"]))
 
 async def poll_agents(api, aggregator, state, single_run=False):
@@ -589,8 +461,7 @@ async def main():
     for p in (raw_dir, payload_dir, failed_dir, logs_dir):
         p.mkdir(parents=True, exist_ok=True)
 
-    force_send_every_cycles = int(os.getenv("WAZUH_FORCE_SEND_EVERY_CYCLES") or os.getenv("FORCE_SEND_EVERY_CYCLES", "10"))
-    snapshot_always_send = parse_bool(os.getenv("WAZUH_SNAPSHOT_ALWAYS_SEND") or os.getenv("SNAPSHOT_ALWAYS_SEND"), default=False)
+    delivery_policy = resolve_delivery_policy(os.environ, "wazuh")
     mad_version = (os.getenv("MAD_VERSION") or "2.3.0").strip()
     wazuh_integration_version = (os.getenv("WAZUH_INTEGRATION_VERSION") or os.getenv("INTEGRATION_VERSION", "1.0.0")).strip()
     source = (os.getenv("SOURCE") or "mad-collector").strip()
@@ -601,8 +472,8 @@ async def main():
         "alert_batch_size": int(os.getenv("ALERT_BATCH_SIZE", 500)),
         "retry_failed_interval_seconds": int(os.getenv("WAZUH_RETRY_FAILED_INTERVAL_SECONDS") or os.getenv("RETRY_FAILED_INTERVAL_SECONDS", 30)),
         "min_rule_level": int(os.getenv("MIN_RULE_LEVEL", 7)),
-        "force_send_every_cycles": force_send_every_cycles,
-        "snapshot_always_send": snapshot_always_send,
+        "delivery_policy": delivery_policy,
+        "delivery_dir": str(artifacts_dir / "delivery-v2"),
         "mad_version": mad_version,
         "integration_version": wazuh_integration_version,
         "source": source,
@@ -684,11 +555,19 @@ async def main():
                 await indexer.close()
             return
 
+        pending_path = artifacts_dir / "delivery-v2" / "wazuh.json"
+        pending_delivery = False
+        if pending_path.exists():
+            with pending_path.open(encoding="utf-8") as pending_file:
+                pending_delivery = bool(json.load(pending_file).get("pending"))
         if required_failed and app_cfg["startup_require_all_tests"]:
-            logger.error("Startup aborted because required integration tests failed.")
-            if indexer is not None:
-                await indexer.close()
-            return
+            if pending_delivery and not missing_required:
+                logger.warning("Startup prechecks failed; continuing to retry durable pending delivery before source collection.")
+            else:
+                logger.error("Startup aborted because required integration tests failed.")
+                if indexer is not None:
+                    await indexer.close()
+                raise SystemExit(1)
     else:
         logger.warning("Startup prechecks were skipped by menu selection.")
 
@@ -698,13 +577,13 @@ async def main():
             logger.error(" - {}", missing_item)
         if indexer is not None:
             await indexer.close()
-        return
+        raise SystemExit(1)
 
     if indexer is None or sender is None:
         logger.error("Startup aborted: required clients could not be initialized.")
         if indexer is not None:
             await indexer.close()
-        return
+        raise SystemExit(1)
 
     if not agent_polling_enabled:
         if api_enabled:
@@ -735,15 +614,16 @@ async def main():
     try:
         if args.once:
             await site.start()
-            await poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id, api_key, app_cfg, single_run=True)
+            delivery_ok = await poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id, api_key, app_cfg, single_run=True)
             if agent_polling_enabled and api is not None:
                 await poll_agents(api, aggregator, state, single_run=True)
             logger.info("Single-run mode completed. Exiting.")
+            if not delivery_ok:
+                raise SystemExit(1)
         else:
             tasks = [
                 site.start(),
                 poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id, api_key, app_cfg),
-                retry_failed_payloads(sender, app_cfg),
             ]
             if agent_polling_enabled and api is not None:
                 tasks.append(poll_agents(api, aggregator, state))

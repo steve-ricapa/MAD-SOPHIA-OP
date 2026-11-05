@@ -62,6 +62,7 @@ wazuh_integration/state/*.db
 runtime/
 .pytest-*/
 .validation-tmp*/
+.test-tmp/
 /insightVM_integration/agent.log
 /insightVM_integration/assets_table.csv
 /insightVM_integration/assets_table.json

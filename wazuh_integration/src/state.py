@@ -35,7 +35,7 @@ class StateStore:
                 return row[0] if row else default
         except Exception as e:
             logger.error(f"Error reading checkpoint {key}: {e}")
-            return default
+            raise
 
     def update_checkpoint(self, key, value):
         try:
@@ -47,6 +47,7 @@ class StateStore:
                 conn.commit()
         except Exception as e:
             logger.error(f"Error updating checkpoint {key}: {e}")
+            raise
 
     def is_alert_processed(self, alert_id):
         if not alert_id:
@@ -60,7 +61,7 @@ class StateStore:
                 return cursor.fetchone() is not None
         except Exception as e:
             logger.error(f"Error checking processed alert {alert_id}: {e}")
-            return False
+            raise
 
     def mark_alerts_processed(self, alert_ids):
         if not alert_ids:
@@ -77,6 +78,7 @@ class StateStore:
                 conn.commit()
         except Exception as e:
             logger.error(f"Error marking processed alerts: {e}")
+            raise
 
     def purge_processed_alerts(self, older_than_days=7):
         try:
@@ -88,3 +90,4 @@ class StateStore:
                 conn.commit()
         except Exception as e:
             logger.error(f"Error purging processed alerts: {e}")
+            raise

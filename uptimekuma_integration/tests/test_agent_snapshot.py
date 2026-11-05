@@ -13,12 +13,14 @@ if str(UPTIME_DIR) not in sys.path:
 
 import agent
 import snapshot
+from mad_common.delivery import DeliveryPolicy
 
 
 def _cfg(tmp_path, **overrides):
     base = {
         "raw_snapshot_path": tmp_path / "raw_monitors_snapshot.json",
         "force_send_every_cycles": 6,
+        "delivery_policy": DeliveryPolicy("on_change"),
         "snapshot_always_send": False,
         "include_all_monitors": True,
         "include_extended_fields": False,
@@ -108,7 +110,7 @@ def test_run_once_sends_snapshot_with_metadata(monkeypatch, tmp_path):
     assert meta["mad_version"] == "2.3.0"
     assert meta["integration_version"] == "1.0.0"
     assert meta["source"] == "mad-collector"
-    assert meta["snapshot_mode"] == "delta_with_periodic_forced"
+    assert meta["snapshot_mode"] == "on_change"
     assert meta["send_reason"] == "first_snapshot"
     assert isinstance(meta["snapshot_signature"], str)
     results = captured["report"]["scan_summary"]["results"]
@@ -140,14 +142,14 @@ def test_run_once_skips_when_unchanged_below_threshold(monkeypatch, tmp_path):
     }
     next_state = agent.run_once(cfg, collector, state)
 
-    assert next_state["unchanged_cycles"] == 3
+    assert next_state["unchanged_cycles"] == 1
     assert next_state["snapshot_signature"] == signature
 
 
 def test_run_once_always_send_mode(monkeypatch, tmp_path):
     monitors = _sample_monitors(status=1)
     signature = snapshot.build_snapshot_signature(monitors)
-    cfg = _cfg(tmp_path, snapshot_always_send=True)
+    cfg = _cfg(tmp_path, delivery_policy=DeliveryPolicy("always"))
     collector = _Collector(monitors)
     captured = {"report": None}
 

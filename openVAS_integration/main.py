@@ -17,7 +17,7 @@ import traceback
 
 from config import (
     OUTPUT_MODE, TXDXAI_INGEST_URL, TXDXAI_COMPANY_ID, TXDXAI_TENANT_ID, TXDXAI_API_KEY,
-    COLLECTOR, POLL_SECONDS, FORCE_SEND_EVERY_CYCLES, SNAPSHOT_ALWAYS_SEND, STATE_PATH, META_MAX_KB,
+    COLLECTOR, POLL_SECONDS, DELIVERY_POLICY, STATE_PATH, META_MAX_KB,
     GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD, GVM_SOCKET, GVM_TRANSPORT,
     GVM_TLS_CAFILE, GVM_TLS_CERTFILE, GVM_TLS_KEYFILE, GVM_TIMEOUT,
     GVM_PAGINATE_REPORT, GVM_REPORT_PAGE_SIZE, GVM_MAX_PAGES, FINDINGS_MAX,
@@ -29,7 +29,8 @@ from config import (
     validate_config,
 )
 
-from snapshot import build_idempotency_key, build_snapshot_signature, decide_snapshot_send
+from snapshot import build_snapshot_signature
+from mad_common.delivery import DeliveryJournal
 
 from services import (
     FileLock, load_state, save_state, purge_sent,
@@ -71,6 +72,78 @@ def persist_report_artifacts(report_id: str, report_xml: str | None, payload: di
         metadata["xml_bytes"] = len(report_xml.encode("utf-8"))
     write_json_file(str(report_dir / "payload.json"), payload)
     write_json_file(str(report_dir / "metadata.json"), metadata)
+
+
+
+DELIVERY_DIRECTORY = Path(ARTIFACTS_DIR) / "delivery-v2"
+
+
+def report_journal_directory(report_id: str) -> Path:
+    return DELIVERY_DIRECTORY / hashlib.sha256(str(report_id).encode("utf-8")).hexdigest()
+
+
+def report_payload_signature(payload: dict[str, Any]) -> str:
+    """Fingerprint report meaning independently of capture and delivery details."""
+    ignored = {
+        "scan_id", "scanned_at", "api_key", "idempotency_key",
+        "snapshot_signature", "snapshot_mode", "snapshot_changed", "send_reason",
+        "pagination", "extraction",
+    }
+
+    def canonical(value):
+        if isinstance(value, dict):
+            return {key: canonical(item) for key, item in value.items() if key not in ignored}
+        if isinstance(value, (list, tuple)):
+            items = [canonical(item) for item in value]
+            if items and all(isinstance(item, dict) for item in items):
+                return sorted(items, key=lambda item: json.dumps(item, sort_keys=True, ensure_ascii=False))
+            return items
+        return value
+
+    raw = json.dumps(canonical(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def emit_report(payload: dict[str, Any], key: str | None = None) -> bool:
+    return emit_payload(
+        output_mode=OUTPUT_MODE, url=TXDXAI_INGEST_URL,
+        api_key=TXDXAI_API_KEY, tenant_id=TXDXAI_TENANT_ID,
+        company_id=TXDXAI_COMPANY_ID, payload=payload,
+        timeout=15, require_https=True,
+    )
+
+
+def drain_reports(journal, receipt_state: dict[str, Any]) -> int:
+    """Record genuine GMP/HTTP acknowledgments before removing durable events."""
+    acknowledged = 0
+
+    def send(payload, key):
+        ok = emit_report(payload, key)
+        summary = payload.get("scan_summary") or {}
+        write_json_file(LAST_DELIVERY_META_PATH, {
+            "saved_at_utc": now(), "scan_id": payload.get("scan_id"),
+            "task_id": (summary.get("meta") or {}).get("task_id"),
+            "task_name": summary.get("scan_name"),
+            "status_raw": summary.get("status_raw"),
+            "status_normalized": summary.get("status"),
+            "delivery_success": ok is True, "ingest_url": TXDXAI_INGEST_URL,
+            "output_mode": OUTPUT_MODE, "collector": COLLECTOR,
+            "idempotency_key": key,
+        })
+        return ok is True
+
+    def on_ack(event):
+        nonlocal acknowledged
+        report_id = str((event.get("context") or {}).get("report_id") or event["payload"].get("scan_id") or "")
+        receipt_state.setdefault("sent", {})[report_id] = int(time.time())
+        receipt_state["has_sent_once"] = True
+        receipt_state["last_idempotency_key"] = event["key"]
+        receipt_state["last_sent_at"] = now()
+        save_state(STATE_PATH, receipt_state)
+        acknowledged += 1
+
+    journal.drain(send, on_ack=on_ack)
+    return acknowledged
 
 
 _error_counts: dict[tuple, int] = {}
@@ -412,7 +485,7 @@ if GVM_SOCKET:
     print(f"[{now()}] GVM_SOCKET={GVM_SOCKET}")
 print(f"[{now()}] GVM_TRANSPORT={GVM_TRANSPORT}")
 print(f"[{now()}] DETAIL_LEVEL={DETAIL_LEVEL} | TOP_N={TOP_N} | FINDINGS_MAX={FINDINGS_MAX} | REPORT_MAX_KB={REPORT_MAX_KB}KB | FINDING_TEXT_MAX={FINDING_TEXT_MAX}")
-print(f"[{now()}] GVM_PAGINATE_REPORT={GVM_PAGINATE_REPORT} | GVM_REPORT_PAGE_SIZE={GVM_REPORT_PAGE_SIZE} | GVM_MAX_PAGES={GVM_MAX_PAGES} | SNAPSHOT_ALWAYS_SEND={SNAPSHOT_ALWAYS_SEND} | FORCE_SEND_EVERY_CYCLES={FORCE_SEND_EVERY_CYCLES}")
+print(f"[{now()}] GVM_PAGINATE_REPORT={GVM_PAGINATE_REPORT} | GVM_REPORT_PAGE_SIZE={GVM_REPORT_PAGE_SIZE} | GVM_MAX_PAGES={GVM_MAX_PAGES} | DELIVERY_MODE={DELIVERY_POLICY.mode} | DELIVERY_BACKUP_CYCLES={DELIVERY_POLICY.backup_cycles}")
 print(f"[{now()}] ARTIFACTS_DIR={ARTIFACTS_DIR}")
 print(f"[{now()}] OPENVAS_STATUS_NORMALIZATION=enabled (Done->completed, Running/Pending not sent)")
 
@@ -445,9 +518,25 @@ while True:
             if not isinstance(sent_map, dict):
                 sent_map = {}
             sent_map = purge_sent(sent_map, max_age_days=int(STATE_TTL_DAYS), max_items=int(STATE_MAX_ITEMS))
-            prev_signature = str(state.get("snapshot_signature", ""))
-            unchanged_cycles = int(state.get("unchanged_cycles", 0) or 0)
-            has_sent_once = bool(state.get("has_sent_once", False))
+            state["sent"] = sent_map
+            # Replay durable payloads before accessing GMP, including during outages.
+            real_delivery = COLLECTOR == "gmp" and OUTPUT_MODE == "http"
+            sent_in_cycle = 0
+            cycle_failed = False
+            snapshot_acknowledged = True
+            attempted_pending = set()
+            if real_delivery:
+                for journal_dir in sorted(DELIVERY_DIRECTORY.glob("*")):
+                    if not journal_dir.is_dir():
+                        continue
+                    with DeliveryJournal(journal_dir, "openvas", DELIVERY_POLICY) as journal:
+                        if journal.state.get("pending"):
+                            attempted_pending.add(journal_dir.name)
+                            sent_in_cycle += drain_reports(journal, state)
+                            if journal.state.get("pending"):
+                                cycle_failed = True
+                                had_cycle_error = True
+            sent_map = state.setdefault("sent", sent_map)
 
             tasks_xml = None
             active_collector = (COLLECTOR or "simulated").strip().lower()
@@ -488,277 +577,230 @@ while True:
 
             task_rows = _extract_task_snapshot_rows(tasks)
             current_signature = build_snapshot_signature(task_rows)
-            snapshot_decision = decide_snapshot_send(
-                current_signature=current_signature,
-                previous_signature=prev_signature,
-                unchanged_cycles=unchanged_cycles,
-                has_sent_once=has_sent_once,
-                force_send_every_cycles=int(FORCE_SEND_EVERY_CYCLES),
-                snapshot_always_send=bool(SNAPSHOT_ALWAYS_SEND),
-            )
-            send_reason = str(snapshot_decision.get("reason", "snapshot_changed"))
-            should_send = bool(snapshot_decision.get("should_send", False))
-            snapshot_changed = bool(snapshot_decision.get("changed", False))
-            unchanged_cycles = int(snapshot_decision.get("unchanged_cycles", 0))
+            # Task metadata cannot establish that report contents are unchanged.
+            next_state = state
+            report_signatures = []
+            snapshot_changed = current_signature != str(state.get("snapshot_signature", ""))
+            send_reason = "report_content_check"
+            for idx, task in enumerate(tasks):
+                try:
+                    report_id = _extract_report_id(task)
 
-            next_state = dict(state)
-            next_state["sent"] = sent_map
-            next_state["snapshot_signature"] = current_signature
-            next_state["unchanged_cycles"] = unchanged_cycles
-
-            if not should_send:
-                next_state["last_send_result"] = "skipped_no_change"
-                save_state(STATE_PATH, next_state)
-                print(
-                    f"[{now()}] Snapshot sin cambios "
-                    f"(ciclo={unchanged_cycles}/{FORCE_SEND_EVERY_CYCLES}) "
-                    f"reason={send_reason} sig={current_signature[:16]}"
-                )
-            else:
-                send_all_reports = send_reason in {"always_snapshot", "force_send_cycle", "first_snapshot"}
-                sent_in_cycle = 0
-
-                for idx, task in enumerate(tasks):
-                    try:
-                        report_id = _extract_report_id(task)
-
-                        if not report_id:
-                            if DEBUG:
-                                print(f"[{now()}] task[{idx}] sin report_id")
-                            continue
-
-                        if not send_all_reports and report_id in sent_map:
-                            continue
-
-                        task_id = (task.get("id") or "").strip()
-                        task_name = ""
-                        task_status_raw = _extract_task_status(task)
-                        task_status = map_status(task_status_raw or "completed", default="completed")
-                        for el in list(task):
-                            tag = _lname(el.tag)
-                            if tag == "name":
-                                task_name = (el.text or "").strip()
-
-                        if task_status in {"pending", "running"}:
-                            if DEBUG:
-                                print(f"[{now()}] task[{idx}] omitida por status no terminal: {task_status_raw or task_status}")
-                            continue
-
-                        severities = _parse_result_count(task)
-
-                        report_xml: str | None = None
-                        report_stats: dict[str, Any] | None = None
-                        findings: list[dict[str, Any]] | None = None
-                        extraction_diagnostics: list[dict[str, Any]] = []
-                        pagination_meta: dict[str, Any] = {}
-
-                        need_report = (
-                            (severities is None)
-                            or _should_include_stats(DETAIL_LEVEL)
-                            or _should_include_findings(DETAIL_LEVEL)
-                        )
-
-                        if need_report:
-                            if active_collector == "simulated":
-                                report_xml = simulated_report_xml(report_id)
-                            else:
-                                from gvm_client import GVMClient
-                                with GVMClient(
-                                    GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD,
-                                    socket_path=GVM_SOCKET,
-                                    transport=GVM_TRANSPORT,
-                                    cafile=GVM_TLS_CAFILE,
-                                    certfile=GVM_TLS_CERTFILE,
-                                    keyfile=GVM_TLS_KEYFILE,
-                                    timeout=GVM_TIMEOUT,
-                                    debug=DEBUG_FLAG,
-                                ) as client:
-                                    report_xml = client.get_report(report_id)
-                                    pagination_meta = dict(getattr(client, "pagination_stats", {}) or {})
-                                    if DEBUG_FLAG:
-                                        print(f"[{now()}] [DEBUG] RAW REPORT XML ({report_id}) ({len(report_xml)} bytes):")
-                                        print(report_xml[:3000])
-                                        if len(report_xml) > 3000:
-                                            print(f"... (truncated, total {len(report_xml)} bytes)")
-
-                            if report_xml:
-                                write_text_file(LAST_REPORT_XML_PATH, report_xml)
-
-                            if severities is None:
-                                severities = extract_severities(report_xml, max_kb=REPORT_MAX_KB)
-
-                            if _should_include_stats(DETAIL_LEVEL):
-                                report_stats = extract_report_stats(report_xml, max_kb=REPORT_MAX_KB)
-
-                            if _should_include_findings(DETAIL_LEVEL):
-                                top_n_effective = int(FINDINGS_MAX) if int(FINDINGS_MAX) >= 0 else int(TOP_N)
-                                findings = extract_findings(
-                                    report_xml,
-                                    top_n=top_n_effective,
-                                    text_max=int(FINDING_TEXT_MAX),
-                                    max_kb=REPORT_MAX_KB,
-                                    diagnostics=extraction_diagnostics,
-                                )
-
-                        findings_hash = hashlib.sha256(
-                            json.dumps(findings or [], sort_keys=True, default=str).encode("utf-8")
-                        ).hexdigest()
-                        idempotency_key = build_idempotency_key(
-                            TXDXAI_COMPANY_ID, "openvas", "vuln_scan_report", f"{report_id}:{findings_hash}"
-                        )
-                        if DEBUG_FLAG:
-                            print(f"[{now()}] [DEBUG] report_id={report_id} findings_count={len(findings or [])} findings_hash={findings_hash[:16]}... idempotency_key={idempotency_key}")
-
-                        metrics, entities = build_dashboard_blocks(severities, findings, report_stats)
-
-                        counts = severities or {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-                        total_hosts = int(report_stats.get("hosts_count", 0)) if report_stats else 0
-                        if total_hosts == 0 and findings:
-                            total_hosts = len(set(f.get("host") for f in findings if f.get("host")))
-
-                        cvss_max = 0.0
-                        if findings:
-                            cvss_max = max((float(f.get("cvss", 0.0)) for f in findings), default=0.0)
-
-                        scanned_at = now()
-
-                        payload: dict[str, Any] = {
-                            "scan_id": report_id,
-                            "company_id": TXDXAI_COMPANY_ID,
-                            "api_key": TXDXAI_API_KEY,
-                            "idempotency_key": idempotency_key,
-                            "scanned_at": scanned_at,
-                            "event_type": "vuln_scan_report",
-                            "scanner_type": "openvas",
-                            "status": task_status,
-                            "scan_summary": {
-                                "summary_type": "vuln_scan_report",
-                                "scanner_type": "openvas",
-                                "scan_id": report_id,
-                                "scan_name": task_name,
-                                "status": task_status,
-                                "status_raw": task_status_raw or "Completed",
-                                "total_hosts": total_hosts,
-                                "scanned_at": scanned_at,
-                                "cvss_max": cvss_max,
-                                "results": {
-                                    "critical": counts.get("critical", 0),
-                                    "high": counts.get("high", 0),
-                                    "medium": counts.get("medium", 0),
-                                    "low": counts.get("low", 0),
-                                    "info": counts.get("info", 0),
-                                },
-                                "meta": {
-                                    "schema_version": "1.0",
-                                    "mad_version": MAD_VERSION,
-                                    "integration_version": OPENVAS_INTEGRATION_VERSION,
-                                    "source": SOURCE,
-                                    "snapshot_signature": current_signature,
-                                    "snapshot_mode": "always" if SNAPSHOT_ALWAYS_SEND else "delta_with_periodic_forced",
-                                    "snapshot_changed": snapshot_changed,
-                                    "send_reason": send_reason,
-                                    "task_id": task_id,
-                                    "pagination": {
-                                        "enabled": bool(pagination_meta.get("enabled", False)),
-                                        "page_size": int(pagination_meta.get("page_size", 0) or 0),
-                                        "pages": int(pagination_meta.get("pages", 0) or 0),
-                                        "results_fetched": int(pagination_meta.get("results_fetched", 0) or 0),
-                                        "findings_max": int(FINDINGS_MAX),
-                                        "findings_in_payload": len(findings or []),
-                                        "results_in_xml": int(report_stats.get("results_in_xml", 0) or 0) if report_stats else 0,
-                                    },
-                                    **metrics,
-                                    "extraction": {
-                                        "results_in_xml": int(report_stats.get("results_in_xml", 0) or 0) if report_stats else 0,
-                                        "findings_extracted": len(findings or []),
-                                        "findings_discarded": len(extraction_diagnostics),
-                                        "diagnostics": extraction_diagnostics[:100],
-                                    },
-                                },
-                                "entities": entities,
-                            },
-                            "findings": findings or [],
-                        }
-
-                        write_json_file(LAST_REPORT_JSON_PATH, payload)
-                        write_json_file(LAST_PAYLOAD_PATH, payload)
-                        persist_report_artifacts(
-                            report_id,
-                            report_xml,
-                            payload,
-                            {
-                                "schema_version": "1.0",
-                                "report_id": report_id,
-                                "task_id": task_id,
-                                "captured_at": scanned_at,
-                                "results_in_xml": int(report_stats.get("results_in_xml", 0) or 0) if report_stats else 0,
-                                "results_fetched": int(pagination_meta.get("results_fetched", 0) or 0),
-                                "findings_extracted": len(findings or []),
-                                "findings_discarded": len(extraction_diagnostics),
-                                "findings_max": int(FINDINGS_MAX),
-                                "top_n": int(TOP_N),
-                                "pagination": pagination_meta,
-                                "diagnostics": extraction_diagnostics[:100],
-                            },
-                        )
-
-                        if DEBUG_FLAG:
-                            payload_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-                            print(f"[{now()}] [DEBUG] SENDING payload report_id={report_id} task={task_name} findings={len(findings or [])} payload_size={payload_bytes/1024:.1f}KB idempotency_key={idempotency_key}")
-
-                        ok = emit_payload(
-                            output_mode=OUTPUT_MODE,
-                            url=TXDXAI_INGEST_URL,
-                            api_key=TXDXAI_API_KEY,
-                            tenant_id=TXDXAI_TENANT_ID,
-                            company_id=TXDXAI_COMPANY_ID,
-                            payload=payload,
-                            timeout=15,
-                            require_https=True,
-                        )
-
-                        write_json_file(
-                            LAST_DELIVERY_META_PATH,
-                            {
-                                "saved_at_utc": now(),
-                                "scan_id": report_id,
-                                "task_id": task_id,
-                                "task_name": task_name,
-                                "status_raw": task_status_raw,
-                                "status_normalized": task_status,
-                                "delivery_success": ok,
-                                "ingest_url": TXDXAI_INGEST_URL,
-                                "output_mode": OUTPUT_MODE,
-                                "collector": COLLECTOR,
-                            },
-                        )
-
-                        if DEBUG_FLAG:
-                            print(f"[{now()}] [DEBUG] BACKEND RESPONSE ok={ok} report_id={report_id}")
-
-                        if ok:
-                            sent_map[report_id] = int(time.time())
-                            sent_in_cycle += 1
-                            next_state["last_idempotency_key"] = idempotency_key
-
-                        else:
-                            had_cycle_error = True
-
-                    except Exception as e:
-                        had_cycle_error = True
-                        handle_exception(f"cycle.task[{idx}].process", e, {"hint": "Fallo procesando task/report"})
+                    if not report_id:
+                        if DEBUG:
+                            print(f"[{now()}] task[{idx}] sin report_id")
                         continue
 
-                next_state["sent"] = sent_map
-                next_state["has_sent_once"] = bool(has_sent_once or sent_in_cycle > 0)
-                next_state["last_send_result"] = "sent" if sent_in_cycle > 0 else "no_payload_sent"
-                if sent_in_cycle > 0:
-                    next_state["last_sent_at"] = now()
-                save_state(STATE_PATH, next_state)
-                print(
-                    f"[{now()}] Snapshot process | sent_reports={sent_in_cycle} "
-                    f"reason={send_reason} changed={snapshot_changed} sig={current_signature[:16]}"
-                )
+                    task_id = (task.get("id") or "").strip()
+                    task_name = ""
+                    task_status_raw = _extract_task_status(task)
+                    task_status = map_status(task_status_raw or "completed", default="completed")
+                    for el in list(task):
+                        tag = _lname(el.tag)
+                        if tag == "name":
+                            task_name = (el.text or "").strip()
+
+                    if task_status in {"pending", "running"}:
+                        if DEBUG:
+                            print(f"[{now()}] task[{idx}] omitida por status no terminal: {task_status_raw or task_status}")
+                        continue
+
+                    severities = _parse_result_count(task)
+
+                    report_xml: str | None = None
+                    report_stats: dict[str, Any] | None = None
+                    findings: list[dict[str, Any]] | None = None
+                    extraction_diagnostics: list[dict[str, Any]] = []
+                    pagination_meta: dict[str, Any] = {}
+
+                    need_report = (
+                        (severities is None)
+                        or _should_include_stats(DETAIL_LEVEL)
+                        or _should_include_findings(DETAIL_LEVEL)
+                    )
+
+                    if need_report:
+                        if active_collector == "simulated":
+                            report_xml = simulated_report_xml(report_id)
+                        else:
+                            from gvm_client import GVMClient
+                            with GVMClient(
+                                GVM_HOST, GVM_PORT, GVM_USERNAME, GVM_PASSWORD,
+                                socket_path=GVM_SOCKET,
+                                transport=GVM_TRANSPORT,
+                                cafile=GVM_TLS_CAFILE,
+                                certfile=GVM_TLS_CERTFILE,
+                                keyfile=GVM_TLS_KEYFILE,
+                                timeout=GVM_TIMEOUT,
+                                debug=DEBUG_FLAG,
+                            ) as client:
+                                report_xml = client.get_report(report_id)
+                                pagination_meta = dict(getattr(client, "pagination_stats", {}) or {})
+                                if DEBUG_FLAG:
+                                    print(f"[{now()}] [DEBUG] RAW REPORT XML ({report_id}) ({len(report_xml)} bytes):")
+                                    print(report_xml[:3000])
+                                    if len(report_xml) > 3000:
+                                        print(f"... (truncated, total {len(report_xml)} bytes)")
+
+                        if report_xml:
+                            write_text_file(LAST_REPORT_XML_PATH, report_xml)
+
+                        if severities is None:
+                            severities = extract_severities(report_xml, max_kb=REPORT_MAX_KB)
+
+                        if _should_include_stats(DETAIL_LEVEL):
+                            report_stats = extract_report_stats(report_xml, max_kb=REPORT_MAX_KB)
+
+                        if _should_include_findings(DETAIL_LEVEL):
+                            top_n_effective = int(FINDINGS_MAX) if int(FINDINGS_MAX) >= 0 else int(TOP_N)
+                            findings = extract_findings(
+                                report_xml,
+                                top_n=top_n_effective,
+                                text_max=int(FINDING_TEXT_MAX),
+                                max_kb=REPORT_MAX_KB,
+                                diagnostics=extraction_diagnostics,
+                            )
+
+                    metrics, entities = build_dashboard_blocks(severities, findings, report_stats)
+
+                    counts = severities or {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+                    total_hosts = int(report_stats.get("hosts_count", 0)) if report_stats else 0
+                    if total_hosts == 0 and findings:
+                        total_hosts = len(set(f.get("host") for f in findings if f.get("host")))
+
+                    cvss_max = 0.0
+                    if findings:
+                        cvss_max = max((float(f.get("cvss", 0.0)) for f in findings), default=0.0)
+
+                    scanned_at = now()
+
+                    payload: dict[str, Any] = {
+                        "scan_id": report_id,
+                        "company_id": TXDXAI_COMPANY_ID,
+                        "api_key": TXDXAI_API_KEY,
+                        "scanned_at": scanned_at,
+                        "event_type": "vuln_scan_report",
+                        "scanner_type": "openvas",
+                        "status": task_status,
+                        "scan_summary": {
+                            "summary_type": "vuln_scan_report",
+                            "scanner_type": "openvas",
+                            "scan_id": report_id,
+                            "scan_name": task_name,
+                            "status": task_status,
+                            "status_raw": task_status_raw or "Completed",
+                            "total_hosts": total_hosts,
+                            "scanned_at": scanned_at,
+                            "cvss_max": cvss_max,
+                            "results": {
+                                "critical": counts.get("critical", 0),
+                                "high": counts.get("high", 0),
+                                "medium": counts.get("medium", 0),
+                                "low": counts.get("low", 0),
+                                "info": counts.get("info", 0),
+                            },
+                            "meta": {
+                                "schema_version": "1.0",
+                                "mad_version": MAD_VERSION,
+                                "integration_version": OPENVAS_INTEGRATION_VERSION,
+                                "source": SOURCE,
+                                "snapshot_signature": current_signature,
+                                "snapshot_mode": DELIVERY_POLICY.mode,
+                                "snapshot_changed": snapshot_changed,
+                                "send_reason": send_reason,
+                                "task_id": task_id,
+                                "pagination": {
+                                    "enabled": bool(pagination_meta.get("enabled", False)),
+                                    "page_size": int(pagination_meta.get("page_size", 0) or 0),
+                                    "pages": int(pagination_meta.get("pages", 0) or 0),
+                                    "results_fetched": int(pagination_meta.get("results_fetched", 0) or 0),
+                                    "findings_max": int(FINDINGS_MAX),
+                                    "findings_in_payload": len(findings or []),
+                                    "results_in_xml": int(report_stats.get("results_in_xml", 0) or 0) if report_stats else 0,
+                                },
+                                **metrics,
+                                "extraction": {
+                                    "results_in_xml": int(report_stats.get("results_in_xml", 0) or 0) if report_stats else 0,
+                                    "findings_extracted": len(findings or []),
+                                    "findings_discarded": len(extraction_diagnostics),
+                                    "diagnostics": extraction_diagnostics[:100],
+                                },
+                            },
+                            "entities": entities,
+                        },
+                        "findings": findings or [],
+                    }
+
+                    signature = report_payload_signature(payload)
+                    report_signatures.append({"report_id": report_id, "signature": signature})
+                    journal_dir = report_journal_directory(report_id)
+                    if real_delivery:
+                        with DeliveryJournal(journal_dir, "openvas", DELIVERY_POLICY,
+                                             delivery_confirmed_this_cycle=journal_dir.name in attempted_pending) as journal:
+                            decision = journal.decision(signature)
+                            print(f"[{now()}] DELIVERY report={report_id} reason={decision['reason']} unchanged={decision['unchanged_cycles']}/{DELIVERY_POLICY.backup_cycles}")
+                            if decision["should_send"]:
+                                payload["scan_summary"]["meta"].update({
+                                    "snapshot_signature": signature,
+                                    "snapshot_mode": decision["snapshot_mode"],
+                                    "snapshot_changed": decision["changed"],
+                                    "send_reason": decision["reason"],
+                                })
+                                event = journal.enqueue(signature, payload, context={
+                                    "report_id": report_id, "task_id": task_id,
+                                    "task_name": task_name, "status_raw": task_status_raw,
+                                    "status_normalized": task_status,
+                                })
+                                if event is not None:
+                                    payload = event["payload"]
+                            else:
+                                # enqueue also persists observations when no event is due.
+                                journal.enqueue(signature, payload)
+                            if journal_dir.name not in attempted_pending:
+                                sent_in_cycle += drain_reports(journal, next_state)
+                            if journal.state.get("pending") or journal.state.get("last_delivered_signature") != signature:
+                                snapshot_acknowledged = False
+                            if journal.state.get("pending"):
+                                cycle_failed = True
+                                had_cycle_error = True
+                    else:
+                        emit_report(payload)
+
+                    write_json_file(LAST_REPORT_JSON_PATH, payload)
+                    write_json_file(LAST_PAYLOAD_PATH, payload)
+                    persist_report_artifacts(
+                        report_id,
+                        report_xml,
+                        payload,
+                        {
+                            "schema_version": "1.0",
+                            "report_id": report_id,
+                            "task_id": task_id,
+                            "captured_at": scanned_at,
+                            "results_in_xml": int(report_stats.get("results_in_xml", 0) or 0) if report_stats else 0,
+                            "results_fetched": int(pagination_meta.get("results_fetched", 0) or 0),
+                            "findings_extracted": len(findings or []),
+                            "findings_discarded": len(extraction_diagnostics),
+                            "findings_max": int(FINDINGS_MAX),
+                            "top_n": int(TOP_N),
+                            "pagination": pagination_meta,
+                            "diagnostics": extraction_diagnostics[:100],
+                        },
+                    )
+
+                except Exception as e:
+                    cycle_failed = True
+                    had_cycle_error = True
+                    handle_exception(f"cycle.task[{idx}].process", e, {"hint": "Fallo procesando task/report"})
+                    continue
+
+            observed_signature = hashlib.sha256(json.dumps(sorted(report_signatures, key=lambda row: (row["report_id"], row["signature"])), sort_keys=True).encode("utf-8")).hexdigest()
+            next_state["last_observed_snapshot_signature"] = observed_signature
+            if real_delivery and not cycle_failed and snapshot_acknowledged:
+                next_state["snapshot_signature"] = observed_signature
+            next_state["last_send_result"] = "sent" if sent_in_cycle else "no_payload_sent"
+            save_state(STATE_PATH, next_state)
+            print(f"[{now()}] Snapshot process | sent_reports={sent_in_cycle} sig={observed_signature[:16]}")
 
     except KeyboardInterrupt:
         print(f"\n[{now()}] Detenido por usuario (Ctrl+C).")

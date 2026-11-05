@@ -9,7 +9,7 @@ Agente Python para consumir datos de Nessus, normalizarlos al formato unificado 
 3. Obtiene detalles de cada scan (`/scans/{id}`), resume severidades y findings.
 4. Mantiene estado local en `state.json` para detectar cambios de snapshot.
 5. Solicita una URL de subida al backend AWS y sube el snapshot a S3 (`OUTPUT_MODE=webhook|all`), imprime (`stdout`) o previsualiza sin enviar (`--preview`).
-6. Incluye `idempotency_key` por snapshot y cola local en disco para fallos transitorios.
+6. Incluye `idempotency_key` por snapshot y journal local durable para fallos transitorios.
 
 ## Variables de entorno
 
@@ -24,7 +24,7 @@ Agente Python para consumir datos de Nessus, normalizarlos al formato unificado 
 - `TXDXAI_TENANT_ID` identifica el tenant en AWS. Si no se define, usa `TXDXAI_COMPANY_ID` como fallback.
 - `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_NESSUS` (fallback: `TXDXAI_API_KEY`)
 - `POLL_INTERVAL_SECONDS` (default: `60`)
-- `FORCE_SEND_EVERY_CYCLES` (default: `10`)
+- Política de envío: `change_or_backup`, cambios y respaldo en el sexto ciclo sin cambios. Consulta la [política común](../docs/delivery-policy.md).
 - `INCLUDE_ALL_FINDINGS` (default: `true`)
 - `NESSUS_ENABLE_EXPORT` (default: `true`): exporta cada scan (`/scans/{id}/export`, formato `nessus`) y parsea CVE, CVSS v2/v3, host, puerto y solución reales por hallazgo. Si falla, vuelve al resumen (`/scans/{id}`) con valores por defecto.
 - `NESSUS_EXPORT_POLL_SECONDS` (default: `5`): intervalo de espera entre estados del export.

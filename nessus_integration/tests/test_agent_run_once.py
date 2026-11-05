@@ -120,9 +120,10 @@ def test_run_once_skips_send_when_unchanged(monkeypatch, tmp_path):
         "snapshot_signature": signature,
         "unchanged_cycles": 1,
         "has_sent_once": True,
+        "last_send_result": "sent",
     }
     next_state = agent.run_once(cfg, collector, state)
 
     assert next_state["snapshot_signature"] == signature
-    assert next_state["unchanged_cycles"] == 2
+    assert next_state["unchanged_cycles"] == 1
     assert next_state["has_sent_once"] is True

@@ -314,71 +314,13 @@ pkill -f "wazuh_integration/main.py"
 pkill -f "insightVM_integration/main.py"
 ```
 
-## Programacion Horaria (systemd) — Recomendada Para Produccion
+## Política de envío
 
-Las 6 integraciones corren **una vez por hora** usando `--once` (un solo ciclo).
-Como cada agente ya persiste su `state.json` y usa el **smart-cache** (`decide_snapshot_send` +
-`FORCE_SEND_EVERY_CYCLES`), una invocacion horaria **no reenvia** snapshots sin cambios:
-solo envía cuando la firma cambió, en el primer envío, o en el heartbeat forzado por
-`FORCE_SEND_EVERY_CYCLES`. No hace falta modo servicio continuo.
+Las seis integraciones usan `change_or_backup`: primer envío, envío ante cambios y respaldo en el sexto ciclo exitoso sin cambios. Los ciclos 1 a 5 sin cambios se omiten. El contador persiste entre reinicios y se reinicia únicamente tras una entrega confirmada. Los fallos de consulta y los reintentos pendientes no lo incrementan. La configuración común es `MAD_DELIVERY_MODE=change_or_backup` y `MAD_DELIVERY_BACKUP_CYCLES=6`. Las seis usan un journal durable que conserva el payload y la clave idempotente hasta recibir confirmación.
 
-### Instalacion (una sola vez, en el servidor)
+Consulta [docs/delivery-policy.md](docs/delivery-policy.md) para perfiles, configuración, reintentos, migración de colas antiguas y límites de validación. Las opciones heredadas `FORCE_SEND_EVERY_CYCLES` y `SNAPSHOT_ALWAYS_SEND` se rechazan. Para comprobar la configuración local, ejecuta `python scripts/check_integrations.py`; para revisar recibos existentes, `python scripts/check_deliveries.py --since <ISO-8601-con-zona>`.
 
-Archivos de referencia versionados en `scripts/`:
-
-- `scripts/run_hourly.sh` — orquestador (detecta el venv, `flock` por integración,
-  escalona lanzamientos, devuelve exit != 0 si algo falla).
-- `scripts/mad-6x.service` — unit `Type=oneshot` que ejecuta el script.
-- `scripts/mad-6x.timer` — dispara cada hora en punto con `Persistent=true`.
-
-Copia los units a systemd (ajusta la ruta del repo en el `.service` si difiere):
-
-```bash
-cd /root/DESARROLLO/MAD-SOPHIA-OP
-cp scripts/mad-6x.service scripts/mad-6x.timer /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now mad-6x.timer
-```
-
-### Comandos utiles
-
-```bash
-systemctl start mad-6x.service      # ejecutar un ciclo manual
-systemctl start mad-6x.timer        # activar la programacion horaria
-systemctl list-timers mad-6x        # ver proxima ejecucion
-systemctl status mad-6x.timer       # estado del timer
-systemctl status mad-6x.service     # estado de la ultima recoleccion (failed si algo fallo)
-journalctl -u mad-6x.service -f     # logs del service
-```
-
-### Logs de cada integracion
-
-El script escribe en `runtime/logs/<nombre>.log` (con rotacion interna a ~5MB/5 archivos):
-`nessus.log`, `uptimekuma.log`, `zabbix.log`, `openvas.log`, `wazuh.log`, `insightvm.log`,
-y el resumen del último run en `runtime/logs/last_run.status`.
-
-### Probar una sola integracion sin esperar la hora
-
-```bash
-cd /root/DESARROLLO/MAD-SOPHIA-OP
-bash scripts/run_hourly.sh --dry-run       # imprime las 6 que lanzaria, sin ejecutar (validacion)
-INV_ONLY=nessus bash scripts/run_hourly.sh # solo nessus (debug)
-bash scripts/run_hourly.sh                 # todas
-```
-
-> Si ves `FAIL --once (2, 0s)` o comandos rotos, es un bug antiguo de parseo:
-> haz `git pull` para obtener el fix que parte los comandos por linea (no por espacios)
-> y usa `--dry-run` para confirmar que las 6 se imprimen completas.
-
-### Forzar el envio de una integracion en una corrida horaria
-
-```bash
-NESSUS_SNAPSHOT_ALWAYS_SEND=true bash scripts/run_hourly.sh
-```
-
-> El orquestador usa el Python del venv del repo (`myenv/` o `venv/`) o `python3` global,
-> y define `STARTUP_REQUIRE_ALL_TESTS=false` para Wazuh automaticamente.
-
+La programación systemd es independiente de la política de envío. Los ejemplos versionados están en `scripts/mad-6x.service`, `scripts/mad-6x.timer` y `scripts/run_hourly.sh`; esta documentación no activa ni modifica servicios.
 ## Logs Y Artifacts
 
 Logs generados con `tee`:
@@ -437,46 +379,9 @@ last_report_built.json
 queue/*.json
 ```
 
-## Forzar Envio De Snapshot
+## Envío de snapshots
 
-Usalo solo para pruebas. Puede enviar snapshots sin cambios.
-
-Nessus:
-
-```bash
-NESSUS_SNAPSHOT_ALWAYS_SEND=true python3 nessus_integration/agent.py --once
-```
-
-Uptime Kuma:
-
-```bash
-UPTIME_SNAPSHOT_ALWAYS_SEND=true python3 uptimekuma_integration/agent.py --once
-```
-
-Zabbix:
-
-```bash
-ZABBIX_SNAPSHOT_ALWAYS_SEND=true python3 zabix_integration/agent.py --once
-```
-
-OpenVAS:
-
-```bash
-OPENVAS_SNAPSHOT_ALWAYS_SEND=true python3 openVAS_integration/main.py --once
-```
-
-Wazuh:
-
-```bash
-WAZUH_SNAPSHOT_ALWAYS_SEND=true STARTUP_REQUIRE_ALL_TESTS=false python3 wazuh_integration/main.py --once
-```
-
-InsightVM:
-
-```bash
-INSIGHTVM_SNAPSHOT_ALWAYS_SEND=true python3 insightVM_integration/main.py --once --log-level INFO
-```
-
+No fuerces el envío cambiando variables antiguas de ciclos. Configura `*_DELIVERY_MODE=always` solo para un diagnóstico controlado y vuelve a `change_or_backup` después. La política común está en [docs/delivery-policy.md](docs/delivery-policy.md).
 ## Validacion Esperada
 
 Envio correcto suele verse asi:

@@ -18,23 +18,13 @@ def build_snapshot_signature(
     window_start: str,
     window_end: str,
 ) -> str:
-    # window_start/window_end se reciben por compatibilidad pero se ignoran:
-    # la firma debe ser puramente de contenido para que el dedup funcione.
+    # Collection windows and normalized fallback timestamps change every poll.
+    # Alert identity and all material normalized fields participate in comparison.
     _ = window_start, window_end
-
-    severity_counts: dict[str, int] = {}
-    finding_ids: list[str] = []
-    for f in findings:
-        sev = f.get("severity", "low")
-        severity_counts[sev] = severity_counts.get(sev, 0) + 1
-        fid = f.get("id") or f.get("_id")
-        if fid is not None:
-            finding_ids.append(f"{fid}:{sev}")
-
-    compact = {
-        "finding_count": len(findings),
-        "agent_total": (agent_summary or {}).get("total", 0),
-        "severity_counts": severity_counts,
-        "finding_ids": sorted(finding_ids),
-    }
+    canonical_findings = [
+        {key: value for key, value in finding.items() if key not in {"timestamp", "collected_at", "scanned_at"}}
+        for finding in findings
+    ]
+    canonical_findings.sort(key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":")))
+    compact = {"findings": canonical_findings, "agent_summary": agent_summary or {}}
     return json.dumps(compact, separators=(",", ":"), sort_keys=True)

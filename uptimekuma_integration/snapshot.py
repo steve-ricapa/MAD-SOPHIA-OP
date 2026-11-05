@@ -10,6 +10,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from mad_common.snapshot import build_idempotency_key, decide_snapshot_send  # noqa: E402
+from mad_common.canonical import canonical_signature
 
 
 def _monitor_sort_key(monitor_id: str) -> tuple[int, Any]:
@@ -20,8 +21,4 @@ def _monitor_sort_key(monitor_id: str) -> tuple[int, Any]:
 
 
 def build_snapshot_signature(monitors: dict[str, dict[str, Any]]) -> str:
-    compact = {
-        mid: int(m.get("status", -1))
-        for mid, m in sorted(monitors.items(), key=lambda it: _monitor_sort_key(it[0]))
-    }
-    return json.dumps(compact, sort_keys=True, separators=(",", ":"))
+    return canonical_signature(monitors)

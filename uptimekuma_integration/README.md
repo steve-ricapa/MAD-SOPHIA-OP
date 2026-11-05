@@ -8,7 +8,7 @@ Agente Python para consumir telemetria de Uptime Kuma desde `/metrics`, converti
 2. Normaliza el estado de monitores a severidades del dashboard.
 3. Mantiene estado local en `state.json` para detectar cambios y evitar ruido.
 4. Solicita una URL de subida al backend AWS y sube el snapshot a S3 (`OUTPUT_MODE=webhook|all`) o imprime en consola (`stdout`).
-5. Incluye `idempotency_key` por snapshot y cola local en disco para reintentos.
+5. Incluye `idempotency_key` por snapshot y journal local durable para reintentos.
 
 ## Variables de entorno
 
@@ -21,7 +21,7 @@ Agente Python para consumir telemetria de Uptime Kuma desde `/metrics`, converti
 - `TXDXAI_INGEST_URL`, `TXDXAI_TENANT_ID`, `TXDXAI_COMPANY_ID`, `TXDXAI_API_KEY_UPTIMEKUMA` (fallback: `TXDXAI_API_KEY`)
 - `TXDXAI_INGEST_URL` debe apuntar a `/scans/upload-url`. Si `TXDXAI_TENANT_ID` no existe, se usa `TXDXAI_COMPANY_ID` como fallback.
 - `POLL_INTERVAL_SECONDS` (default: `15`)
-- `FORCE_SEND_EVERY_CYCLES` (default: `6`)
+- Política de envío: `change_or_backup`, cambios y respaldo en el sexto ciclo sin cambios. Consulta la [política común](../docs/delivery-policy.md).
 - `INCLUDE_ALL_MONITORS` (default: `false`) para incluir todos los monitores en cada reporte.
 - `QUEUE_ENABLED` (default: `true`)
 - `QUEUE_DIR` (default: `queue`)

@@ -10,6 +10,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from mad_common.snapshot import build_idempotency_key, decide_snapshot_send  # noqa: E402
+from mad_common.canonical import canonical_signature
 
 
 def _scan_sort_key(scan: dict[str, Any]) -> tuple[int, int]:
@@ -20,12 +21,5 @@ def _scan_sort_key(scan: dict[str, Any]) -> tuple[int, int]:
 
 
 def build_snapshot_signature(scans: list[dict[str, Any]]) -> str:
-    compact = [
-        {
-            "scan_id": int(s.get("scan_id", 0) or 0),
-            "last_modification_date": int(s.get("last_modification_date", 0) or 0),
-            "status": str(s.get("status", "")),
-        }
-        for s in sorted(scans, key=_scan_sort_key)
-    ]
-    return json.dumps(compact, separators=(",", ":"), sort_keys=True)
+    # Source timestamps, findings and targets are meaningful; collection IDs are not present here.
+    return canonical_signature(scans)

@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from mad_common.delivery import DeliveryPolicy, resolve_delivery_policy
+
 import os
 from pathlib import Path
 from dataclasses import dataclass
@@ -6,6 +13,7 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class Config:
+    delivery_policy: DeliveryPolicy
     base_dir: Path
     artifacts_dir: Path
     api_url: str
@@ -32,8 +40,6 @@ class Config:
     delivery_meta_path: Path
     raw_snapshot_path: Path
     include_events: bool
-    force_send_every_cycles: int
-    snapshot_always_send: bool
     mad_version: str
     integration_version: str
     source: str
@@ -98,14 +104,6 @@ def load_config() -> Config:
     include_events = _env_bool("ZABBIX_INCLUDE_EVENTS", _env_bool("INCLUDE_EVENTS", False))
 
     # Snapshot / Queue
-    force_send_every_cycles = int(
-        os.getenv("ZABBIX_FORCE_SEND_EVERY_CYCLES")
-        or os.getenv("FORCE_SEND_EVERY_CYCLES", "10")
-    )
-    snapshot_always_send = _env_bool(
-        "ZABBIX_SNAPSHOT_ALWAYS_SEND",
-        _env_bool("SNAPSHOT_ALWAYS_SEND", False),
-    )
     mad_version = (os.getenv("MAD_VERSION") or "2.3.0").strip()
     integration_version = (
         os.getenv("ZABBIX_INTEGRATION_VERSION")
@@ -139,6 +137,7 @@ def load_config() -> Config:
         raise SystemExit("Falta TXDXAI_API_KEY_ZABBIX/TXDXAI_API_KEY/API_KEY para OUTPUT_MODE=webhook/all.")
 
     return Config(
+        delivery_policy=resolve_delivery_policy(os.environ, 'zabbix'),
         base_dir=base_dir,
         artifacts_dir=artifacts_dir,
         api_url=api_url,
@@ -165,8 +164,6 @@ def load_config() -> Config:
         delivery_meta_path=delivery_meta_path,
         raw_snapshot_path=raw_snapshot_path,
         include_events=include_events,
-        force_send_every_cycles=force_send_every_cycles,
-        snapshot_always_send=snapshot_always_send,
         mad_version=mad_version,
         integration_version=integration_version,
         source=source,
