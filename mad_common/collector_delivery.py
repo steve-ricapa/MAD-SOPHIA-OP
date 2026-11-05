@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .delivery import DeliveryJournal, DeliveryPolicy, resolve_delivery_policy
+from .artifacts import archive_bundle, maintain_history
+from .fs import atomic_replace
+from .logs import append_jsonl
 
 
 def private_json(path: Path, value: dict) -> None:
@@ -19,7 +22,7 @@ def private_json(path: Path, value: dict) -> None:
             json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        atomic_replace(temporary, path)
         if os.name != "nt":
             directory_fd = os.open(path.parent, os.O_RDONLY)
             try:
@@ -38,6 +41,7 @@ def run_snapshot_cycle(*, integration, cfg, state, collect, signature, prepare, 
     send(payload, key) returns the existing transport's result dictionary.
     """
     policy = getattr(cfg, "delivery_policy", None) or resolve_delivery_policy({}, integration)
+    maintain_history(Path(cfg.debug_report_path).parent, integration)
     queue = Path(cfg.queue_dir)
     if queue.exists() and any(queue.glob("*.json")):
         raise RuntimeError("Legacy pending payloads require the documented migration before delivery-v2")
@@ -79,14 +83,16 @@ def run_snapshot_cycle(*, integration, cfg, state, collect, signature, prepare, 
                 delivery = send(payload, key)
                 return delivery.get("sent") is True and delivery.get("queued") is not True
             finally:
-                private_json(Path(cfg.delivery_meta_path), {
+                receipt = {
                     "schema_version": 2, "integration": integration,
                     "saved_at_utc": datetime.now(timezone.utc).isoformat(),
                     "scan_id": payload.get("scan_id"), "idempotency_key": key,
                     "mode": cfg.output_mode, "sent": delivery.get("sent") is True,
                     "queued": delivery.get("queued") is True, "flushed_from_queue": 0,
                     "delivery_policy": policy.mode,
-                })
+                }
+                private_json(Path(cfg.delivery_meta_path), receipt)
+                append_jsonl(Path(cfg.delivery_meta_path).parent / "delivery_receipts.jsonl", receipt)
 
         # A transport failure must not prevent observing a new transition. The pending
         # payload stays durable; the cycle still exits nonzero after observation.
@@ -112,7 +118,9 @@ def run_snapshot_cycle(*, integration, cfg, state, collect, signature, prepare, 
             effective_state.update((event.get("context") or {}).get("state_patch", {}))
         if decision["should_send"]:
             payload, patch = prepare(data, effective_state, decision)
-            journal.enqueue(current, payload, context={"state_patch": patch})
+            event = journal.enqueue(current, payload, context={"state_patch": patch})
+            archive_bundle(Path(cfg.debug_report_path).parent, integration,
+                           {"raw.json": data, "payload.json": event["payload"]})
         else:
             # enqueue's no-send branch durably records a successful observation.
             journal.enqueue(current, {})

@@ -116,3 +116,13 @@ def test_backup_real_collector_flow_does_not_count_source_errors(tmp_path):
     assert len(sent) == 2
     assert sent[0][1] != sent[1][1]
     assert state["has_sent_once"] is True
+
+
+def test_optional_archive_disk_failure_cannot_prevent_delivery(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAD_ARCHIVE_ENABLED", "true")
+    monkeypatch.setattr("mad_common.artifacts._private_write", lambda *_: (_ for _ in ()).throw(OSError("diagnostic disk unavailable")))
+    cfg = config(tmp_path)
+    sent = []
+    state = run(cfg, lambda: {"signature": "A"}, lambda payload, key: sent.append(key) or {"sent": True})
+    assert len(sent) == 1 and state["has_sent_once"] is True
+    assert Path(cfg.last_payload_path).exists()

@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
+from .fs import atomic_replace
 
 
 @dataclass(frozen=True)
@@ -246,7 +247,7 @@ class DeliveryJournal:
                 output.write(encoded)
                 output.flush()
                 os.fsync(output.fileno())
-            os.replace(name, self.path)
+            atomic_replace(name, self.path)
             replaced = True
             self._sync_directory()
             self.state = candidate

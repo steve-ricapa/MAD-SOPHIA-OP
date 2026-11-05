@@ -1,12 +1,17 @@
 import json
 import os
 import re
+import sys
 import time
 import traceback
 from typing import Any, Optional
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from mad_common.artifacts import archive_bundle
 
 try:
     from defusedxml import ElementTree as SafeET  # type: ignore
@@ -65,16 +70,7 @@ def _save_payload_debug(
         return
 
     base_dir = os.getenv("OPENVAS_PAYLOAD_DEBUG_DIR", "").strip() or "runtime/payload_debug/openvas"
-    out_dir = Path(base_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     scan_id = str(payload.get("scan_id") or payload.get("scanId") or "no_scan_id")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    suffix = uuid4().hex[:8]
-    base_name = f"{stamp}_{scan_id}_{suffix}".replace("/", "_").replace("\\", "_").replace(" ", "_")
-
-    payload_path = out_dir / f"payload_{base_name}.json"
-    meta_path = out_dir / f"meta_{base_name}.json"
 
     string_lengths = _collect_string_lengths(payload)
     top_lengths = sorted(string_lengths.items(), key=lambda kv: kv[1], reverse=True)[:40]
@@ -92,10 +88,7 @@ def _save_payload_debug(
         "strings_over_255": over_255,
     }
 
-    with open(payload_path, "w", encoding="utf-8") as pf:
-        json.dump(payload, pf, ensure_ascii=False, indent=2)
-    with open(meta_path, "w", encoding="utf-8") as mf:
-        json.dump(meta, mf, ensure_ascii=False, indent=2)
+    archive_bundle(base_dir, "openvas", {"payload.json": payload, "metadata.json": meta}, force=True)
 
 
 def write_json_file(path: str | Path, data: Any) -> None:

@@ -23,6 +23,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 from mad_common.delivery import resolve_delivery_policy
+from mad_common.artifacts import resolve_artifact_policy
 
 
 INTEGRATIONS = ("nessus", "uptimekuma", "zabbix", "openvas", "wazuh", "insightvm")
@@ -381,6 +382,12 @@ def run_checks(cfg, repo: Path, session, *, service_user="desarrollo-xoc", actua
     if (actual_user if actual_user is not None else current_user()) != service_user:
         return [Result("identity", "service_user", "FAIL", "must_run_as_configured_service_user")]
     results = [Result("identity", "service_user", "PASS", "effective_service_identity_confirmed")]
+    try:
+        storage = resolve_artifact_policy(cfg)
+        results.append(Result("configuration", "artifact_policy", "PASS",
+                              f"archives={storage.enabled};max_entries={storage.max_entries};max_bytes={storage.max_bytes}"))
+    except ValueError:
+        return results + [Result("configuration", "artifact_policy", "FAIL", "invalid_artifact_or_log_settings")]
     for name in INTEGRATIONS:
         try:
             policy = resolve_delivery_policy(cfg, name)

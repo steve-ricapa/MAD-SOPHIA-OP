@@ -2,10 +2,15 @@ import aiohttp
 import asyncio
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 from loguru import logger
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from mad_common.artifacts import archive_bundle
 
 class Sender:
     def __init__(self, ingest_url):
@@ -65,10 +70,6 @@ class Sender:
         if not Sender._payload_debug_enabled():
             return
         debug_dir = Path(os.getenv("WAZUH_PAYLOAD_DEBUG_DIR", "runtime/payload_debug/wazuh"))
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        scan_id = str(report.get("scan_id") or report.get("scanId") or "no_scan_id")
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-        base = f"{stamp}_{scan_id}_{uuid4().hex[:8]}".replace("/", "_").replace("\\", "_").replace(" ", "_")
         lengths = Sender._collect_string_lengths(report)
         top = sorted(lengths.items(), key=lambda kv: kv[1], reverse=True)[:40]
         meta = {
@@ -80,10 +81,9 @@ class Sender:
             "strings_over_255": [{"path": k, "length": v} for k, v in top if v > 255],
             "top_string_lengths": [{"path": k, "length": v} for k, v in top],
         }
-        with open(debug_dir / f"payload_{base}.json", "w", encoding="utf-8") as pf:
-            json.dump(report, pf, ensure_ascii=False, indent=2)
-        with open(debug_dir / f"meta_{base}.json", "w", encoding="utf-8") as mf:
-            json.dump(meta, mf, ensure_ascii=False, indent=2)
+        archive_bundle(debug_dir, "wazuh", {
+            "payload.json": report, "metadata.json": meta,
+        }, force=True)
 
     async def probe_endpoint(self, api_key=None, timeout_seconds=10):
         """Quick non-invasive endpoint check used by startup prechecks."""

@@ -31,6 +31,8 @@ from config import (
 
 from snapshot import build_snapshot_signature
 from mad_common.delivery import DeliveryJournal
+from mad_common.logs import append_jsonl
+from mad_common.artifacts import archive_bundle, maintain_history
 
 from services import (
     FileLock, load_state, save_state, purge_sent,
@@ -62,16 +64,13 @@ def now() -> str:
 
 
 def persist_report_artifacts(report_id: str, report_xml: str | None, payload: dict[str, Any], metadata: dict[str, Any]) -> None:
-    """Persist an immutable XML/JSON/metadata bundle for one report."""
-    safe_id = re.sub(r"[^A-Za-z0-9._-]", "_", str(report_id or "unknown"))[:180] or "unknown"
-    report_dir = Path(REPORT_ARTIFACTS_DIR) / safe_id
-    report_dir.mkdir(parents=True, exist_ok=True)
+    """Optionally archive a report; latest copies and delivery state are separate."""
+    files: dict[str, Any] = {"payload.json": payload, "metadata.json": metadata}
     if report_xml is not None:
-        write_text_file(str(report_dir / "report.xml"), report_xml)
+        files["report.xml"] = report_xml
         metadata["xml_sha256"] = hashlib.sha256(report_xml.encode("utf-8")).hexdigest()
         metadata["xml_bytes"] = len(report_xml.encode("utf-8"))
-    write_json_file(str(report_dir / "payload.json"), payload)
-    write_json_file(str(report_dir / "metadata.json"), metadata)
+    archive_bundle(REPORT_ARTIFACTS_DIR, "openvas", files)
 
 
 
@@ -129,6 +128,10 @@ def drain_reports(journal, receipt_state: dict[str, Any]) -> int:
             "delivery_success": ok is True, "ingest_url": TXDXAI_INGEST_URL,
             "output_mode": OUTPUT_MODE, "collector": COLLECTOR,
             "idempotency_key": key,
+        })
+        append_jsonl(Path(LAST_DELIVERY_META_PATH).parent / "delivery_receipts.jsonl", {
+            "saved_at_utc": now(), "integration": "openvas", "scan_id": payload.get("scan_id"),
+            "idempotency_key": key, "sent": ok is True,
         })
         return ok is True
 
@@ -513,6 +516,7 @@ while True:
 
     try:
         with FileLock(lock_path):
+            maintain_history(REPORT_ARTIFACTS_DIR, "openvas")
             state = load_state(STATE_PATH)
             sent_map = state.get("sent", {})
             if not isinstance(sent_map, dict):
@@ -807,22 +811,18 @@ while True:
         break
     except Exception as e:
         had_cycle_error = True
-        try:
-            with open(cycle_errors_file, "a", encoding="utf-8") as ef:
-                ef.write(json.dumps({
-                    "timestamp_utc": now(),
-                    "cycle": cycle_count,
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "collector": COLLECTOR,
-                    "gvm_transport": GVM_TRANSPORT,
-                    "gvm_host": GVM_HOST,
-                    "gvm_port": GVM_PORT,
-                    "gvm_socket": GVM_SOCKET,
-                    "traceback": traceback.format_exc(),
-                }, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
+        append_jsonl(cycle_errors_file, {
+            "timestamp_utc": now(),
+            "cycle": cycle_count,
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "collector": COLLECTOR,
+            "gvm_transport": GVM_TRANSPORT,
+            "gvm_host": GVM_HOST,
+            "gvm_port": GVM_PORT,
+            "gvm_socket": GVM_SOCKET,
+            "traceback": traceback.format_exc(),
+        })
         handle_exception("cycle.top_level", e, {"accion": "Se continuarÃ¡ el siguiente ciclo"})
 
     if args.once:

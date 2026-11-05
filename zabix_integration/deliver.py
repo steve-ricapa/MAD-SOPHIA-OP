@@ -9,6 +9,12 @@ from datetime import datetime, timezone
 
 import requests
 
+import sys
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from mad_common.artifacts import archive_bundle
+
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
@@ -58,10 +64,6 @@ def _save_payload_debug(payload: Dict[str, Any], status_code: Optional[int], res
     if not _payload_debug_enabled():
         return
     debug_dir = Path(os.getenv("ZABBIX_PAYLOAD_DEBUG_DIR", "runtime/payload_debug/zabbix"))
-    debug_dir.mkdir(parents=True, exist_ok=True)
-    scan_id = str(payload.get("scan_id") or payload.get("scanId") or "no_scan_id")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    base = f"{stamp}_{scan_id}_{uuid.uuid4().hex[:8]}".replace("/", "_").replace("\\", "_").replace(" ", "_")
     lengths = _collect_string_lengths(payload)
     top = sorted(lengths.items(), key=lambda kv: kv[1], reverse=True)[:40]
     meta = {
@@ -73,8 +75,7 @@ def _save_payload_debug(payload: Dict[str, Any], status_code: Optional[int], res
         "strings_over_255": [{"path": k, "length": v} for k, v in top if v > 255],
         "top_string_lengths": [{"path": k, "length": v} for k, v in top],
     }
-    write_json(debug_dir / f"payload_{base}.json", payload)
-    write_json(debug_dir / f"meta_{base}.json", meta)
+    archive_bundle(debug_dir, "zabbix", {"payload.json": payload, "metadata.json": meta}, force=True)
 
 
 def _backoff_with_jitter(base_seconds: int, attempt: int, max_wait: int = 60) -> float:

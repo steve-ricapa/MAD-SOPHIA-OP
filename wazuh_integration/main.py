@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import math
 import os
 import sys
 import uuid
@@ -17,6 +18,9 @@ from src.state import StateStore
 from src.sender import Sender
 from snapshot import build_snapshot_signature
 from mad_common.delivery import DeliveryJournal, resolve_delivery_policy
+from mad_common.logs import append_jsonl
+from mad_common.artifacts import archive_bundle, log_retention, maintain_history, resolve_artifact_policy
+from mad_common.collector_delivery import private_json
 
 
 WAZUH_BANNER = r"""
@@ -43,9 +47,7 @@ def parse_bool(value, default=False):
 
 
 def archive_json(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    private_json(Path(path), data)
 
 
 def resolve_path(base_dir: Path, raw_path: str) -> Path:
@@ -275,6 +277,7 @@ async def poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id,
     while True:
         cycle_ok = True
         try:
+            maintain_history(Path(app_cfg["raw_dir"]).parent, "wazuh")
             legacy = list(Path(app_cfg["failed_dir"]).glob("failed_*.json"))
             if legacy:
                 raise RuntimeError(
@@ -308,6 +311,11 @@ async def poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id,
                         "status_code": getattr(sender, "last_status_code", None),
                         "failure_kind": getattr(sender, "last_failure_kind", None),
                         "error_body": getattr(sender, "last_error_body", None),
+                    })
+                    append_jsonl(Path(app_cfg["last_delivery_meta_path"]).parent / "delivery_receipts.jsonl", {
+                        "saved_at_utc": datetime.now(timezone.utc).isoformat(), "integration": "wazuh",
+                        "scan_id": payload.get("scan_id"), "idempotency_key": key,
+                        "sent": ok is True, "status_code": getattr(sender, "last_status_code", None),
                     })
                     return ok is True
 
@@ -343,15 +351,15 @@ async def poll_alerts(indexer, aggregator, state, sender, tenant_id, company_id,
                         event = journal.enqueue(signature, report)
                         if event is not None:
                             report = event["payload"]
-                    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                     raw_record = {"scan_id": scan_id, "window": {"start": w_start_str, "end": w_end_str},
                                   "raw_count": raw_count, "filtered_count": len(raw_alerts),
                                   "finding_count": len(findings), "snapshot_signature": signature,
                                   "send_reason": decision["reason"], "raw_alerts": raw_alerts}
-                    archive_json(Path(app_cfg["raw_dir"]) / f"raw_{timestamp}_{scan_id}.json", raw_record)
                     archive_json(Path(app_cfg["last_raw_path"]), raw_record)
-                    archive_json(Path(app_cfg["payload_dir"]) / f"payload_{timestamp}_{scan_id}.json", report)
                     archive_json(Path(app_cfg["last_payload_path"]), report)
+                    archive_bundle(Path(app_cfg["raw_dir"]).parent, "wazuh", {
+                        "raw.json": raw_record, "payload.json": report,
+                    })
                     if dry_run:
                         logger.info("DRY_RUN enabled: preview archived; no delivery state advanced")
                     elif cycle_ok:
@@ -458,7 +466,7 @@ async def main():
     last_raw_path = artifacts_dir / "last_raw_snapshot.json"
     last_payload_path = artifacts_dir / "last_payload_sent.json"
     last_delivery_meta_path = artifacts_dir / "last_delivery_meta.json"
-    for p in (raw_dir, payload_dir, failed_dir, logs_dir):
+    for p in (failed_dir, logs_dir):
         p.mkdir(parents=True, exist_ok=True)
 
     delivery_policy = resolve_delivery_policy(os.environ, "wazuh")
@@ -494,7 +502,13 @@ async def main():
     logger.info("\n{}", WAZUH_BANNER)
 
     debug_log_path = logs_dir / "agent_console.json"
-    logger.add(debug_log_path, rotation="10 MB", level=os.getenv("LOG_LEVEL", "INFO"), serialize=True)
+    log_max_mb = resolve_artifact_policy().log_max_mb
+    try:
+        log_retention(list(logs_dir.glob("agent_console.*.json")))
+    except OSError as exc:
+        logger.warning("Rotated log maintenance skipped: {}", type(exc).__name__)
+    logger.add(debug_log_path, rotation=int(log_max_mb * 1024 * 1024),
+               retention=log_retention, level=os.getenv("LOG_LEVEL", "INFO"), serialize=True)
     logger.info("Console logs are being saved as JSON to: {}", debug_log_path)
 
     indexer = None

@@ -70,24 +70,12 @@ echo "[run_hourly] Python: $PY"
 echo "[run_hourly] Repo:   $REPO_DIR"
 
 # ---------------------------------------------------------------------------
-# LOGS: rotacion interna basica (mantener ~5 archivos por integracion)
+# LOGS: rotación configurable, ejecutada dentro del lock de integración.
+# El tamaño se controla antes del ciclo; no limita la salida durante el ciclo.
 # ---------------------------------------------------------------------------
 rotate_log() {
   local log="$1"
-  local max=5
-  [ -f "$log" ] || return 0
-  # rotar solo si supera ~5MB
-  local size=0
-  size="$(wc -c < "$log" 2>/dev/null || echo 0)"
-  if [ "${size:-0}" -ge 5242880 ]; then
-    local i
-    for i in $(seq "$max" -1 1); do
-      if [ -f "$log.$i" ]; then
-        if [ "$i" -eq "$max" ]; then rm -f "$log.$i"; else mv "$log.$i" "$log.$((i+1))"; fi
-      fi
-    done
-    mv "$log" "$log.1"
-  fi
+  "$PY" "$SCRIPT_DIR/rotate_logs.py" "$log"
 }
 
 # ---------------------------------------------------------------------------
@@ -113,14 +101,16 @@ run_one() {
   local lock="$LOCK_DIR/$name.lock"
   local log="$LOG_DIR/$name.log"
 
-  rotate_log "$log"
-
   (
     if [ "$HAVE_FLOCK" -eq 1 ]; then
       if ! flock -n 200; then
         echo "[$(date -Is)] SKIP $name: lock ocupado (otra ejecucion en curso)." >> "$log"
         return 0
       fi
+    fi
+    if ! rotate_log "$log"; then
+      echo "[run_hourly] FAIL $name: no se pudo preparar la rotacion de logs." >&2
+      return 1
     fi
     echo "[$(date -Is)] INICIO $name" >> "$log"
     local start end code

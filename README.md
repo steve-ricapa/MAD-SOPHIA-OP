@@ -323,6 +323,8 @@ Consulta [docs/delivery-policy.md](docs/delivery-policy.md) para perfiles, confi
 La programación systemd es independiente de la política de envío. Los ejemplos versionados están en `scripts/mad-6x.service`, `scripts/mad-6x.timer` y `scripts/run_hourly.sh`; esta documentación no activa ni modifica servicios.
 ## Logs Y Artifacts
 
+Los historicos completos son opcionales y estan desactivados por defecto. Se conservan las ultimas copias, los recibos, estados y pendientes. Los controles comunes `MAD_ARCHIVE_*` y `MAD_LOG_*` limitan los nuevos diagnosticos y logs; consulta [la politica de almacenamiento](docs/artifact-retention.md). Los archivos antiguos se inventarian con `python scripts/audit_storage.py`; esa herramienta no elimina nada.
+
 Logs generados con `tee`:
 
 ```text
