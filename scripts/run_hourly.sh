@@ -2,7 +2,7 @@
 #
 # run_hourly.sh
 # ------------
-# Orquestador horario de las 6 integraciones MAD-SOPHIA-OP.
+# Orquestador horario de las 5 integraciones MAD-SOPHIA-OP.
 #
 # - Detecta automaticamente un Python valido (venv del repo o python3 global).
 # - Corre cada integración una vez. La decisión de envío usa MAD_DELIVERY_MODE
@@ -142,8 +142,7 @@ run_list() {
     "uptimekuma|uptimekuma_integration/agent.py --once" \
     "zabbix|zabix_integration/agent.py --once" \
     "openvas|openVAS_integration/main.py --once" \
-    "wazuh|wazuh_integration/main.py --once" \
-    "insightvm|insightVM_integration/main.py --once --log-level INFO"
+    "wazuh|wazuh_integration/main.py --once"
 }
 
 # ---------------------------------------------------------------------------

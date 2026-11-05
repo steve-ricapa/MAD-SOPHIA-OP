@@ -1,5 +1,5 @@
 [Unit]
-Description=MAD-SOPHIA-OP: recoleccion horaria de las 6 integraciones (Nessus, Uptime Kuma, Zabbix, OpenVAS, Wazuh, InsightVM)
+Description=MAD-SOPHIA-OP: recoleccion horaria de las 5 integraciones (Nessus, Uptime Kuma, Zabbix, OpenVAS, Wazuh)
 # El timer mad-6x.timer lo dispara. Ajusta ruta si el repo vive en otro lugar.
 After=network-online.target
 Wants=network-online.target
@@ -9,9 +9,7 @@ Type=oneshot
 User=root
 WorkingDirectory=/home/steve-ricapa/DESARROLLO/MAD-SOPHIA-OP
 ExecStart=/bin/bash /home/steve-ricapa/DESARROLLO/MAD-SOPHIA-OP/scripts/run_hourly.sh
-# Si falla, reintentar y dejar que systemctl muestre el estado de fallo.
-Restart=on-failure
-RestartSec=60
+Restart=no
 # Tiempo maximo razonable para una recoleccion horaria completa.
 TimeoutStartSec=1800
 # Proteccion del sistema.
