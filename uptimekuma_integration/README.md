@@ -14,6 +14,8 @@ Agente Python para consumir telemetria de Uptime Kuma desde `/metrics`, converti
 
 - `UPTIME_KUMA_URL` (required, sin default local)
 - `UPTIME_KUMA_METRICS_PATH` (default: `/metrics`)
+- `UPTIME_KUMA_CA_BUNDLE`: archivo PEM de confianza solo para consultar Kuma, con `UPTIME_VERIFY_SSL=true`. Vacio usa el almacen predeterminado de Requests; rutas relativas parten de la raiz del repo. Un archivo ausente o ilegible falla sin desactivar TLS.
+- En Nexus: `UPTIME_KUMA_URL=https://10.208.232.45:443` y `UPTIME_KUMA_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt`. La CA no se aplica a envios AWS ni otras integraciones. El cambio no necesita modificar el cron.
 - `UPTIME_KUMA_DB_PATH` (opcional, ejemplo: `C:\Users\diego\uptime-kuma\data\kuma.db`) para enriquecer con config, ultimo heartbeat, TLS y stats.
 - `UPTIME_KUMA_USERNAME`, `UPTIME_KUMA_PASSWORD` (auth basica)
 - `UPTIME_KUMA_API_KEY_ID`, `UPTIME_KUMA_API_KEY` (si Uptime Kuma tiene API Keys habilitadas)

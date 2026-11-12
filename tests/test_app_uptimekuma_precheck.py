@@ -39,7 +39,7 @@ def test_uptimekuma_precheck_uses_api_key_auth(monkeypatch):
     env["UPTIME_KUMA_API_KEY"] = "uk-test"
     captured = {"auth": None}
 
-    def _fake_http(method, url, timeout, auth=None, headers=None, json_body=None):
+    def _fake_http(method, url, timeout, auth=None, headers=None, json_body=None, verify=True):
         _ = method, url, timeout, headers, json_body
         captured["auth"] = auth
         return {"ok": True, "status_code": 200, "body_preview": "ok", "error_kind": None, "error_text": None}
@@ -60,7 +60,7 @@ def test_uptimekuma_precheck_supports_quoted_api_key_values(monkeypatch):
     env["UPTIME_KUMA_API_KEY"] = '"uk-quoted"'
     captured = {"auth": None}
 
-    def _fake_http(method, url, timeout, auth=None, headers=None, json_body=None):
+    def _fake_http(method, url, timeout, auth=None, headers=None, json_body=None, verify=True):
         _ = method, url, timeout, headers, json_body
         captured["auth"] = auth
         return {"ok": True, "status_code": 200, "body_preview": "ok", "error_kind": None, "error_text": None}

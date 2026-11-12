@@ -4,6 +4,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from mad_common.delivery import DeliveryPolicy, resolve_delivery_policy
+from uptimekuma_integration.tls import metrics_tls_verify
 
 import os
 from dataclasses import dataclass
@@ -50,6 +51,7 @@ class Config:
     kuma_api_key_id: Optional[str]
     kuma_api_key: Optional[str]
     kuma_db_path: Optional[Path]
+    metrics_verify: bool | str = True
 
     @property
     def metrics_url(self) -> str:
@@ -187,4 +189,5 @@ def load_config() -> Config:
         kuma_api_key_id=kuma_api_key_id.strip() if kuma_api_key_id else None,
         kuma_api_key=kuma_api_key.strip() if kuma_api_key else None,
         kuma_db_path=kuma_db_path,
+        metrics_verify=metrics_tls_verify(os.environ, root_dir),
     )

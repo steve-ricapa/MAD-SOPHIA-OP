@@ -24,6 +24,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 from mad_common.delivery import resolve_delivery_policy
 from mad_common.artifacts import resolve_artifact_policy
+from uptimekuma_integration.tls import metrics_tls_verify
 
 
 INTEGRATIONS = ("nessus", "uptimekuma", "zabbix", "openvas", "wazuh", "insightvm")
@@ -186,7 +187,7 @@ def check_uptimekuma(cfg, session, repo: Path) -> list[Result]:
         auth = api_auth if all(api_auth) else user_auth if all(user_auth) else None
         path = cfg.get("UPTIME_KUMA_METRICS_PATH", "/metrics")
         url = _url(cfg, "UPTIME_KUMA_URL") + "/" + path.lstrip("/")
-        response = _request(session, "GET", url, auth=auth, verify=_verify(cfg, "UPTIME_VERIFY_SSL"))
+        response = _request(session, "GET", url, auth=auth, verify=metrics_tls_verify(cfg, repo))
         count = sum(bool(re.match(r"^monitor_status(?:\{|\s)", line)) for line in response.text.splitlines())
         if not count:
             raise CheckFailure("monitor_status_metrics_missing")

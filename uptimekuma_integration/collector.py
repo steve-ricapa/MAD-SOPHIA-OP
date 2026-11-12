@@ -317,7 +317,7 @@ class UptimeKumaCollector:
                 response = requests.get(
                     self.cfg.metrics_url,
                     timeout=self.cfg.request_timeout,
-                    verify=self.cfg.verify_ssl,
+                    verify=self.cfg.metrics_verify,
                     auth=auth,
                 )
                 response.raise_for_status()

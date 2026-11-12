@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 import socket
 
 import requests
+from pathlib import Path
+from uptimekuma_integration.tls import metrics_tls_verify
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,7 @@ def _http_probe_detailed(
     auth: Any = None,
     headers: Optional[dict[str, str]] = None,
     json_body: Optional[dict[str, Any]] = None,
+    verify: bool | str = True,
 ) -> dict[str, Any]:
     try:
         response = requests.request(
@@ -79,6 +82,7 @@ def _http_probe_detailed(
             headers=headers,
             json=json_body,
             allow_redirects=False,
+            verify=verify,
         )
     except requests.RequestException as exc:
         return {
@@ -148,7 +152,12 @@ def run_agent_precheck_diagnostic(spec: AgentSpec, env: dict[str, str], timeout_
     api_error = None
     if auth_ok:
         url = f"{base_url.rstrip('/')}{metrics_path if metrics_path.startswith('/') else '/' + metrics_path}"
-        response = _http_probe_detailed("GET", url, timeout_seconds, auth=auth)
+        try:
+            verify = metrics_tls_verify(env, Path(__file__).resolve().parent)
+        except (ValueError, OSError):
+            phases.append({"phase": "api", "status": "FAIL", "normalized_error": "invalid_kuma_tls_config"})
+            return PrecheckResult(passed=False, phases=phases)
+        response = _http_probe_detailed("GET", url, timeout_seconds, auth=auth, verify=verify)
         api_ok = bool(response.get("ok"))
         api_error = response.get("error_kind") or response.get("error_text")
 
